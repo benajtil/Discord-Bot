@@ -39,7 +39,7 @@ const client = new Client({
     GatewayIntentBits.GuildMembers,
   ],
 });
-
+require("./farewell")(client, db, PREFIX, DEVELOPER_ID);
 client.commands = new Collection();
 client.aliases = new Collection();
 
@@ -450,7 +450,7 @@ async function sendHelp(message) {
   const embed = new EmbedBuilder()
     .setTitle("Ysabelle • Command Guide")
     .setColor(0x8b5cf6)
-    .setDescription("Kator6's welcome configuration and utility commands.")
+    .setDescription("Kator6's welcome, farewell, and utility commands.")
     .addFields(
       {
         name: "General",
@@ -476,13 +476,26 @@ async function sendHelp(message) {
         ].join("\n"),
       },
       {
-        name: "Template variables",
+        name: "Farewell setup • Manage Server",
+        value: [
+          "`!setleave #channel` — Set a separate farewell channel",
+          "`!leavedesc <text>` — Customize the farewell message",
+          "`!leavetest` — Preview the farewell message",
+          "`!leaveoff` — Disable farewell messages",
+        ].join("\n"),
+      },
+      {
+        name: "Welcome template variables",
         value:
           "`?user`, `?tag`, `?mention`, `?server`, `?rank`, `?useravatar`, `?serveravatar`",
       },
+      {
+        name: "Farewell template variables",
+        value: "`?user`, `?tag`, `?server`, `?count`",
+      },
     )
     .setFooter({
-      text: "Only trusted staff should configure welcome settings.",
+      text: "Only trusted staff should configure welcome and farewell settings.",
     });
 
   return message.reply({ embeds: [embed] });

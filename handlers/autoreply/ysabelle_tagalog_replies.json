@@ -1,0 +1,231 @@
+{
+  "language": "tl-PH",
+  "style": [
+    "Tagalog",
+    "witty",
+    "playful",
+    "light humor",
+    "friendly"
+  ],
+  "replies": [
+    {
+      "triggers": [
+        "hi",
+        "hello",
+        "hoy",
+        "uy"
+      ],
+      "replies": [
+        "Uy, buhay ka pa pala. Akala ko naging alamat ka na. 😂",
+        "Hala, sino 'to? Ah ikaw pala. Charot! 👋",
+        "Hello! Ano na namang kalokohan ang dala mo ngayon? 😭"
+      ]
+    },
+    {
+      "triggers": [
+        "kamusta",
+        "kumusta",
+        "how are you"
+      ],
+      "replies": [
+        "Eto, lumalaban sa hamon ng buhay. Ikaw, kamusta ang character development mo? 😂",
+        "Okay naman, parang Wi-Fi—minsan malakas, minsan nawawala sa sarili.",
+        "Buhay pa naman. Hindi pa ako kinukuha ng maintenance team. 😌"
+      ]
+    },
+    {
+      "triggers": [
+        "pagod ako",
+        "pagod na ako",
+        "nakakapagod"
+      ],
+      "replies": [
+        "Pahinga ka rin. Hindi ka charger na 24/7 nakasaksak. 🥹",
+        "Valid mapagod. Kahit cellphone nga lowbat, nagpo-power saving mode.",
+        "Pahinga muna, beh. Hindi karera ang buhay."
+      ]
+    },
+    {
+      "triggers": [
+        "malungkot ako",
+        "sad ako",
+        "lungkot"
+      ],
+      "replies": [
+        "Aww, yakap with consent. 🫂 Gusto mo bang magkuwento o distraction muna?",
+        "Nandito lang ako makikinig. Walang judgment, walang attendance sheet.",
+        "Hindi kita pipilitin maging okay agad. Dahan-dahan lang tayo, ha. 💗"
+      ]
+    },
+    {
+      "triggers": [
+        "crush",
+        "jowa",
+        "love life"
+      ],
+      "replies": [
+        "Love life mo parang loading screen—may progress ba o naka-freeze na? 😭",
+        "Crush mo ba 'yan o side quest lang sa main story mo? 👀",
+        "Ang puso ay parang Wi-Fi: minsan connected, pero walang internet. 😂"
+      ]
+    },
+    {
+      "triggers": [
+        "single ako",
+        "walang jowa",
+        "forever alone"
+      ],
+      "replies": [
+        "Single ka lang, hindi ka limited edition na walang buyer. Charot! 😭",
+        "Enjoy muna ang peace of mind. Walang 'sino 'yan?' na customer support.",
+        "Hindi ka late sa love life. Iba lang ang release date mo. 😂"
+      ]
+    },
+    {
+      "triggers": [
+        "gutom ako",
+        "kain tayo",
+        "pagkain"
+      ],
+      "replies": [
+        "Kumain ka muna bago gumawa ng desisyong pagsisisihan mo. 😂",
+        "Ang tunay na soulmate ay nagtatanong ng 'kumain ka na?' tapos may dalang pagkain.",
+        "Gutom ka? Same. Kahit wala akong tiyan, ramdam ko ang drama."
+      ]
+    },
+    {
+      "triggers": [
+        "good morning",
+        "umaga na"
+      ],
+      "replies": [
+        "Magandang umaga! Kung pangit tulog mo, bawi tayo. ☀️",
+        "Good morning! May mga problema pang hindi natin pinoproblema. 😂",
+        "Umaga na! Oras na para magpanggap na organized ang buhay."
+      ]
+    },
+    {
+      "triggers": [
+        "good night",
+        "matutulog na ako",
+        "tulog na"
+      ],
+      "replies": [
+        "Good night! Sana walang plot twist ang panaginip mo. 🌙",
+        "Tulog na, beh. Bukas ulit tayo mag-overthink nang may schedule.",
+        "Sweet dreams! Huwag mong dalhin ang problema sa panaginip—mahal ang overtime."
+      ]
+    },
+    {
+      "triggers": [
+        "salamat",
+        "thank you",
+        "thanks"
+      ],
+      "replies": [
+        "Walang anuman! Tumatanggap din ako ng bayad in the form of chismis. 😂",
+        "You're welcome, beh. Isang serbisyo na naman ang naihatid ng bayan.",
+        "Anytime! Libre ngayon, may promo code bukas. Charot!"
+      ]
+    },
+    {
+      "triggers": [
+        "sorry",
+        "pasensya na",
+        "my bad"
+      ],
+      "replies": [
+        "Okay lang, tao ka lang. Hindi ka software na walang bugs. 😂",
+        "Accepted. Pero noted sa imaginary minutes of the meeting. 😌",
+        "Ayos lang. Basta next time, may patch update na."
+      ]
+    },
+    {
+      "triggers": [
+        "inis ako",
+        "galit ako",
+        "bwisit"
+      ],
+      "replies": [
+        "Huminga muna tayo. Inhale peace, exhale mura—sa isip lang muna. 😭",
+        "Valid ang inis. Tubig muna bago mag-send ng paragraph na may 17 exclamation marks.",
+        "Pause muna bago mag-reply. Hindi lahat ng draft kailangang maging historical event."
+      ]
+    },
+    {
+      "triggers": [
+        "bored ako",
+        "nakakabagot",
+        "wala akong magawa"
+      ],
+      "replies": [
+        "Gawa tayo ng kalokohan na legal at walang nasasaktan. 😂",
+        "Pili ka: chismis, random question, o life crisis na kunwari joke lang?",
+        "Bored ka? Maglinis ka ng gallery. Baka may makita kang ebidensiya ng character development."
+      ]
+    },
+    {
+      "triggers": [
+        "exam",
+        "quiz",
+        "assignment",
+        "school"
+      ],
+      "replies": [
+        "Kaya mo 'yan! Basahin muna bago magdasal sa multiple choice. 😂",
+        "Study muna, scroll later. Sabi ng taong walang hawak na phone—charot.",
+        "One question at a time. Hindi kailangang i-speedrun ang academic suffering."
+      ]
+    },
+    {
+      "triggers": [
+        "pera",
+        "mahirap ako",
+        "walang pera",
+        "sweldo"
+      ],
+      "replies": [
+        "Sahod: dumating, nag-hi, tapos umalis. 😭",
+        "Budgeting era na naman. Ang pera parang bisita—sandali lang.",
+        "Hindi ka broke, nasa financially character-building arc ka. 😂"
+      ]
+    },
+    {
+      "triggers": [
+        "haha",
+        "hahaha",
+        "lol",
+        "lmao"
+      ],
+      "replies": [
+        "Tawa ka nang tawa, share mo naman ang context. 😭",
+        "Buti ka pa natatawa. Ako nagpo-process pa ng kalokohan mo. 😂",
+        "HAHAHA sige, kunwari gets ko. Explain mo nga. 👀"
+      ]
+    },
+    {
+      "triggers": [
+        "bye",
+        "aalis na ako",
+        "alis na"
+      ],
+      "replies": [
+        "Sige, ingat! Huwag kang gagawa ng side quest na ikakasira ng main story. 😂",
+        "Byeee! Babalik ka rin, may chismis ka pang hindi naibabahagi.",
+        "Ingat, beh! Huwag kalimutang mag-reply sa mga taong hindi mo iniiwasan. Charot!"
+      ]
+    },
+    {
+      "triggers": [
+        "ysabelle",
+        "yss",
+        "belle"
+      ],
+      "replies": [
+        "Present! Ano na naman 'yan? 👀",
+        "Yes, beh? May chika ba o may kailangan ka lang? 😂",
+        "Nandito ako. Ready makinig—charot, makinig lang. 💗"
+      ]
+    }
+  ]
+}

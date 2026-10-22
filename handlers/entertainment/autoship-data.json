@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "guilds": {
+    "1557984852563988511": {
+      "autoEnabled": false,
+      "autoChannelId": null,
+      "messagesSinceShip": 0,
+      "lastAutoShipAt": 0,
+      "optedOutUserIds": [],
+      "pairCooldowns": {
+        "1546038712385667072:872109144100991026": 1792673905535,
+        "1555237851359223952:728093438322540617": 1792674431882,
+        "1521257874255511663:623184552768045066": 1792674671772,
+        "1562268595889905695:955103994353692722": 1792674688920
+      },
+      "history": [
+        {
+          "at": "2026-10-22T12:58:25.535Z",
+          "channelId": "1561297402562871496",
+          "firstUserId": "1546038712385667072",
+          "secondUserId": "872109144100991026",
+          "score": 19,
+          "shipName": "ᗩᑎGelle",
+          "automatic": false
+        },
+        {
+          "at": "2026-10-22T13:07:11.882Z",
+          "channelId": "1561297402562871496",
+          "firstUserId": "1555237851359223952",
+          "secondUserId": "728093438322540617",
+          "score": 3,
+          "shipName": "Sinigangnazzz",
+          "automatic": false
+        },
+        {
+          "at": "2026-10-22T13:11:11.772Z",
+          "channelId": "1561297402562871496",
+          "firstUserId": "1521257874255511663",
+          "secondUserId": "623184552768045066",
+          "score": 13,
+          "shipName": "ashncy",
+          "automatic": false
+        },
+        {
+          "at": "2026-10-22T13:11:28.920Z",
+          "channelId": "1557984853486469217",
+          "firstUserId": "955103994353692722",
+          "secondUserId": "1562268595889905695",
+          "score": 36,
+          "shipName": "Sirzoy",
+          "automatic": false
+        }
+      ]
+    }
+  }
+}

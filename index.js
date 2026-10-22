@@ -23,7 +23,6 @@ const {
 } = require("canvas-constructor/napi-rs");
 const { createCanvas, loadImage: loadNapiImage } = require("@napi-rs/canvas");
 const moment = require("moment");
-
 const config = require("./config.json");
 const db = new QuickDB();
 
@@ -34,22 +33,30 @@ const PORT = Number(process.env.PORT) || 3000;
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
-    GatewayIntentBits.GuildMembers,
   ],
 });
+
+const registerMemory = require("./memory");
+const { registerAutoDelete } = require("./handlers/autodelete/autodelete");
+const { registerAutoShip } = require("./handlers/entertainment/autoship");
+registerAutoShip(client);
+registerAutoDelete(client);
+registerMemory(client, db, PREFIX);
 require("./farewell")(client, db, PREFIX, DEVELOPER_ID);
+const { registerAutoReply } = require("./handlers/autoreply/autoreply");
 client.commands = new Collection();
 client.aliases = new Collection();
 
 const cooldowns = new Map();
 const COOLDOWN_SECONDS = 1;
-
 const fontDirectory = path.join(__dirname, "fonts");
 const vampireFont = path.join(fontDirectory, "Vampire Wars.ttf");
 const quicksandFont = path.join(fontDirectory, "Quicksand-SemiBold.ttf");
-
+const { registerConfessions } = require("./handlers/entertainment/confessions");
+registerConfessions(client);
 // ─────────────────────────────────────────────
 // Fonts
 // ─────────────────────────────────────────────
@@ -344,6 +351,7 @@ function chooseBackground() {
 // Embed welcome event
 // ─────────────────────────────────────────────
 
+registerAutoReply(client);
 client.on(Events.GuildMemberAdd, async (member) => {
   try {
     const channelId = await db.get(`welcome_${member.guild.id}`);
@@ -482,6 +490,21 @@ async function sendHelp(message) {
           "`!leavedesc <text>` — Customize the farewell message",
           "`!leavetest` — Preview the farewell message",
           "`!leaveoff` — Disable farewell messages",
+        ].join("\n"),
+      },
+      {
+        name: "Conversation Memory",
+        value: [
+          "`!memory help` — Show memory commands",
+          "`!memory on` — Opt in to message storage",
+          "`!memory off` — Stop storing new messages",
+          "`!memory show` — DM your recent history",
+          "`!memory remember <fact>` — Save a long-term fact",
+          "`!memory facts` — View saved facts",
+          "`!memory forget <number>` — Delete a fact",
+          "`!memory clear` — Delete your saved history",
+          "`!memory channel` — Staff: view channel history",
+          "`!memory channelclear` — Staff: clear channel history",
         ].join("\n"),
       },
       {

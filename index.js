@@ -915,20 +915,27 @@ server.on("error", (error) => {
 // Ready and login
 // --------------------------------------------------
 
-client.once(Events.ClientReady, async (readyClient) => {
-  readyClient.user.setStatus("dnd");
-  console.log(`Logged in as ${readyClient.user.tag}`);
+if (!process.env.DISCORD_TOKEN) {
+  console.error(
+    "[Ysabelle] DISCORD_TOKEN is missing from environment variables.",
+  );
+  process.exit(1);
+}
 
-  await registerHelpCommand();
+client.once("ready", () => {
+  console.log(`[Ysabelle] Logged in as ${client.user.tag}`);
+});
+
+client.on("error", (error) => {
+  console.error("[Ysabelle] Discord client error:", error);
+});
+
+client.login(process.env.DISCORD_TOKEN).catch((error) => {
+  console.error("[Ysabelle] Discord login failed:", error);
 });
 
 process.on("unhandledRejection", (error) => {
-  console.error("Unhandled promise rejection:", error);
+  console.error("[Ysabelle] Unhandled promise rejection:", error);
 });
-
-if (!process.env.DISCORD_TOKEN) {
-  console.error("Missing DISCORD_TOKEN in your .env file.");
-  process.exit(1);
-}
 
 client.login(process.env.DISCORD_TOKEN);

@@ -7,6 +7,7 @@ const {
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { createCanvas } = require("@napi-rs/canvas");
 
 const ROOT = __dirname;
 const DATA_DIR = path.join(ROOT, "data");
@@ -16,7 +17,6 @@ const ROASTS_FILE = path.join(ROOT, "roasts.json");
 const CONFIG_FILE = path.join(ROOT, "entertainment-config.json");
 const HISTORY_FILE = path.join(DATA_DIR, "entertainment-history.json");
 
-const { createCanvas } = require("@napi-rs/canvas");
 const DEFAULT_CONFIG = {
   enabled: true,
   darkHumor: true,
@@ -116,6 +116,7 @@ let history = { reactions: [], ships: [], roasts: [] };
 
 function ensureJsonFile(file, value) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
+
   if (!fs.existsSync(file)) {
     fs.writeFileSync(file, JSON.stringify(value, null, 2), "utf8");
   }
@@ -129,6 +130,7 @@ function readJson(file, fallback) {
       `[Ysabelle] Cannot read ${path.basename(file)}:`,
       error.message,
     );
+
     return fallback;
   }
 }
@@ -136,15 +138,19 @@ function readJson(file, fallback) {
 function writeJson(file, value) {
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
+
     const temp = `${file}.tmp`;
+
     fs.writeFileSync(temp, JSON.stringify(value, null, 2), "utf8");
     fs.renameSync(temp, file);
+
     return true;
   } catch (error) {
     console.error(
       `[Ysabelle] Cannot save ${path.basename(file)}:`,
       error.message,
     );
+
     return false;
   }
 }
@@ -155,9 +161,11 @@ function saveConfig() {
 
 function saveHistory() {
   const max = Math.max(20, Number(config.maxHistoryEntries) || 200);
+
   history.reactions = history.reactions.slice(-max);
   history.ships = history.ships.slice(-max);
   history.roasts = (history.roasts || []).slice(-max);
+
   return writeJson(HISTORY_FILE, history);
 }
 
@@ -192,24 +200,38 @@ function loadFiles() {
 
   ensureJsonFile(CONFIG_FILE, DEFAULT_CONFIG);
   ensureJsonFile(MEME_FILE, FALLBACK_MEMES);
+
   ensureJsonFile(ROAST_FILE, {
     roasts: FALLBACK_ROASTS,
     ship_openers: FALLBACK_SHIP_OPENERS,
     ship_outcomes: FALLBACK_SHIP_OUTCOMES,
   });
+
   ensureJsonFile(HISTORY_FILE, {
     reactions: [],
     ships: [],
     roasts: [],
   });
 
-  config = { ...DEFAULT_CONFIG, ...readJson(CONFIG_FILE, DEFAULT_CONFIG) };
+  config = {
+    ...DEFAULT_CONFIG,
+    ...readJson(CONFIG_FILE, DEFAULT_CONFIG),
+  };
 
-  if (!Array.isArray(config.disabledChannels)) config.disabledChannels = [];
-  if (!Array.isArray(config.disabledUsers)) config.disabledUsers = [];
-  if (typeof config.nsfwEnabled !== "boolean") config.nsfwEnabled = false;
+  if (!Array.isArray(config.disabledChannels)) {
+    config.disabledChannels = [];
+  }
+
+  if (!Array.isArray(config.disabledUsers)) {
+    config.disabledUsers = [];
+  }
+
+  if (typeof config.nsfwEnabled !== "boolean") {
+    config.nsfwEnabled = false;
+  }
 
   memeData = readJson(MEME_FILE, FALLBACK_MEMES);
+
   roastData = readJson(ROAST_FILE, {
     roasts: FALLBACK_ROASTS,
     ship_openers: FALLBACK_SHIP_OPENERS,
@@ -227,6 +249,7 @@ function loadFiles() {
   if (!Array.isArray(history.roasts)) history.roasts = [];
 
   roastDataset = loadRoastDataset();
+
   saveConfig();
   saveHistory();
 }
@@ -240,12 +263,15 @@ function cleanText(value, maxLength = 1800) {
 
 function randomItem(items) {
   if (!Array.isArray(items) || items.length === 0) return null;
+
   return items[Math.floor(Math.random() * items.length)];
 }
 
 function pickUniqueItem(items, recentItems = []) {
   if (!Array.isArray(items) || items.length === 0) return null;
+
   const fresh = items.filter((item) => !recentItems.includes(item));
+
   return randomItem(fresh.length ? fresh : items);
 }
 
@@ -261,8 +287,14 @@ function isCommand(content) {
 }
 
 function getCooldownKey(type, message, targetId = "") {
-  if (type === "reaction") return `reaction:${message.channelId}`;
-  if (type === "ship") return `ship:${message.guildId}:${message.author.id}`;
+  if (type === "reaction") {
+    return `reaction:${message.channelId}`;
+  }
+
+  if (type === "ship") {
+    return `ship:${message.guildId}:${message.author.id}`;
+  }
+
   return `${type}:${message.author.id}:${targetId}`;
 }
 
@@ -276,6 +308,7 @@ function setCooldown(key, seconds) {
 
 function checkAndSetCooldown(key, seconds) {
   if (isCoolingDown(key)) return false;
+
   setCooldown(key, seconds);
   return true;
 }
@@ -296,6 +329,7 @@ function recordReaction(message, kind, text) {
     kind,
     text: cleanText(text, 500),
   });
+
   saveHistory();
 }
 
@@ -331,7 +365,6 @@ function getAllowedRoasts() {
     );
   }
 
-  // The fallback list contains original, non-explicit roasts.
   return FALLBACK_ROASTS.map((roast, index) => ({
     number: index + 1,
     roast,
@@ -341,9 +374,11 @@ function getAllowedRoasts() {
 
 function getRoast(targetName) {
   const allowed = getAllowedRoasts();
+
   if (!allowed.length) return null;
 
   const recent = recentRoasts.get(targetName) || [];
+
   const selected = pickUniqueItem(
     allowed,
     recent.map((item) => item.number),
@@ -365,6 +400,7 @@ function getMentionedMembers(message) {
 
 function chooseRandomShipMember(message) {
   const members = message.guild?.members?.cache;
+
   if (!members) return null;
 
   const candidates = [...members.values()].filter(
@@ -382,6 +418,7 @@ function getShipText(firstName, secondName) {
   const previous = recentShipPairs.get(pairKey) || 0;
 
   if (Date.now() - previous < 60000) return null;
+
   recentShipPairs.set(pairKey, Date.now());
 
   const openers = roastData.ship_openers || FALLBACK_SHIP_OPENERS;
@@ -394,6 +431,7 @@ function getShipText(firstName, secondName) {
     secondName,
     percentage,
   });
+
   saveHistory();
 
   return `${randomItem(openers)}\n**${firstName} × ${secondName}: ${percentage}% compatibility**\n${randomItem(outcomes)}`;
@@ -401,6 +439,7 @@ function getShipText(firstName, secondName) {
 
 async function generateAiRoast(targetName) {
   const apiKey = process.env.GROQ_API_KEY;
+
   if (!apiKey || config.aiMode === "local") return null;
 
   try {
@@ -435,6 +474,7 @@ async function generateAiRoast(targetName) {
 
     const data = await response.json();
     const output = data?.choices?.[0]?.message?.content?.trim();
+
     return output ? cleanText(output, 500) : null;
   } catch (error) {
     console.error("[Ysabelle] AI roast failed:", error.message);
@@ -442,10 +482,134 @@ async function generateAiRoast(targetName) {
   }
 }
 
+/*
+ * RANDOM MEME API
+ *
+ * Uses Meme API to fetch a meme online.
+ * No local meme folder or API key is required.
+ */
+async function fetchRandomMeme() {
+  const endpoint = "https://meme-api.com/gimme";
+
+  const response = await fetch(endpoint, {
+    headers: {
+      Accept: "application/json",
+      "User-Agent": "YsabelleDiscordBot/1.0",
+    },
+    signal: AbortSignal.timeout(10000),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Meme API returned HTTP ${response.status}`);
+  }
+
+  const data = await response.json();
+
+  if (
+    !data ||
+    typeof data.url !== "string" ||
+    typeof data.postLink !== "string"
+  ) {
+    throw new Error("The Meme API returned an invalid response.");
+  }
+
+  if (data.nsfw === true || data.spoiler === true) {
+    throw new Error("The API returned an NSFW or spoiler-marked meme.");
+  }
+
+  let imageUrl;
+
+  try {
+    imageUrl = new URL(data.url);
+  } catch {
+    throw new Error("The API returned an invalid image URL.");
+  }
+
+  if (!["https:", "http:"].includes(imageUrl.protocol)) {
+    throw new Error("The API returned an unsupported image URL.");
+  }
+
+  return {
+    title: cleanText(data.title || "Random Meme", 200),
+    url: imageUrl.toString(),
+    postLink: data.postLink,
+    subreddit: cleanText(data.subreddit || "memes", 80),
+    author: cleanText(data.author || "Unknown", 80),
+  };
+}
+
+async function handleRandomMeme(message) {
+  const key = getCooldownKey("randommeme", message);
+
+  if (!checkAndSetCooldown(key, config.commandCooldownSeconds)) {
+    return reply(message, "The meme vault is reloading. Try again shortly.");
+  }
+
+  try {
+    await message.channel.sendTyping();
+
+    /*
+     * A few retries help when the API returns a flagged post.
+     * The command does not download the image or save it locally.
+     */
+    let meme = null;
+
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        meme = await fetchRandomMeme();
+        break;
+      } catch (error) {
+        if (attempt === 2) throw error;
+
+        console.warn(
+          `[Ysabelle] Meme API attempt ${attempt + 1} failed:`,
+          error.message,
+        );
+      }
+    }
+
+    const embed = new EmbedBuilder()
+      .setColor(0x8b5cf6)
+      .setAuthor({
+        name: "YSABELLE • THE MEME VAULT",
+        iconURL: message.client.user.displayAvatarURL(),
+      })
+      .setTitle(meme.title)
+      .setURL(meme.postLink)
+      .setImage(meme.url)
+      .setDescription(
+        [
+          "### 🎲 RANDOM MEME DROP",
+          `**Source:** r/${meme.subreddit}`,
+          `**Posted by:** u/${meme.author}`,
+          "",
+          `[View the original post](${meme.postLink})`,
+        ].join("\n"),
+      )
+      .setFooter({
+        text: `Requested by ${message.member?.displayName || message.author.username}`,
+      })
+      .setTimestamp();
+
+    return message.channel.send({
+      embeds: [embed],
+      allowedMentions: { parse: [] },
+    });
+  } catch (error) {
+    console.error("[Ysabelle] Random meme failed:", error.message);
+
+    return reply(
+      message,
+      "The meme service is unavailable or returned an unsuitable meme. Please try again later.",
+    );
+  }
+}
+
 function getHelpText() {
   return [
     "**Ysabelle's Chaotic Entertainment**",
-    "`!meme [general|gaming|school|relationship]` — random meme",
+    "`!meme [general|gaming|school|relationship]` — random text meme",
+    "`!randommeme` — fetch a random meme image online",
     "`!meme category <category>` — change default category (admin)",
     "`!roast @user` — roast a member",
     "`!nsfw on/off/status` — control adult roast dataset (admin for on/off)",
@@ -484,7 +648,6 @@ function createMemeImage(category, text, username) {
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, width, height);
 
-  // Decorative circles
   ctx.globalAlpha = 0.12;
   ctx.fillStyle = "#ffffff";
 
@@ -501,14 +664,11 @@ function createMemeImage(category, text, username) {
   }
 
   ctx.globalAlpha = 1;
-
-  // Header
   ctx.fillStyle = "#d8b4fe";
   ctx.font = "bold 25px Arial";
   ctx.textAlign = "left";
-  ctx.fillText(`YSABELLE  /  ${(category || "general").toUpperCase()}`, 55, 65);
+  ctx.fillText(`YSABELLE  /  ${category.toUpperCase()}`, 55, 65);
 
-  // Main meme text with automatic wrapping
   const words = String(text).split(/\s+/);
   const lines = [];
   let line = "";
@@ -528,7 +688,6 @@ function createMemeImage(category, text, username) {
 
   if (line) lines.push(line);
 
-  // Fit long captions into the image
   let fontSize = 48;
 
   while (fontSize > 25) {
@@ -550,7 +709,7 @@ function createMemeImage(category, text, username) {
 
   const lineHeight = fontSize * 1.25;
   const totalHeight = lines.length * lineHeight;
-  let y = 300 - totalHeight / 2 + lineHeight / 2;
+  const y = 300 - totalHeight / 2 + lineHeight / 2;
 
   ctx.fillStyle = "rgba(0, 0, 0, 0.28)";
 
@@ -564,7 +723,6 @@ function createMemeImage(category, text, username) {
     ctx.fillText(item, width / 2, y + index * lineHeight);
   });
 
-  // Footer
   ctx.textAlign = "left";
   ctx.font = "20px Arial";
   ctx.fillStyle = "#ddd6fe";
@@ -575,6 +733,7 @@ function createMemeImage(category, text, username) {
 
   return canvas.toBuffer("image/png");
 }
+
 function createMemeEmbed(category, text, member) {
   const styles = {
     general: {
@@ -619,42 +778,15 @@ function createMemeEmbed(category, text, member) {
     })
     .setTimestamp();
 }
-function getRandomMemeFile() {
-  const memesDirectory = path.join(__dirname, "memes");
 
-  if (!fs.existsSync(memesDirectory)) {
-    return null;
-  }
-
-  const supportedExtensions = /\.(png|jpe?g|webp|gif)$/i;
-  const files = [];
-
-  function scanDirectory(directory) {
-    for (const entry of fs.readdirSync(directory, {
-      withFileTypes: true,
-    })) {
-      const fullPath = path.join(directory, entry.name);
-
-      if (entry.isDirectory()) {
-        scanDirectory(fullPath);
-      } else if (entry.isFile() && supportedExtensions.test(entry.name)) {
-        files.push(fullPath);
-      }
-    }
-  }
-
-  scanDirectory(memesDirectory);
-
-  if (!files.length) {
-    return null;
-  }
-
-  return files[Math.floor(Math.random() * files.length)];
-}
 async function handleCommand(message) {
   const parts = message.content.trim().split(/\s+/);
   const command = parts[0].toLowerCase();
   const args = parts.slice(1);
+
+  if (command === "!randommeme") {
+    return handleRandomMeme(message);
+  }
 
   if (command === "!nsfw") {
     const subcommand = (args[0] || "status").toLowerCase();
@@ -688,53 +820,12 @@ async function handleCommand(message) {
       `NSFW roasts are now **${config.nsfwEnabled ? "ON" : "OFF"}**.`,
     );
   }
-  if (command === "!randommeme") {
-    const key = getCooldownKey("randommeme", message);
 
-    if (!checkAndSetCooldown(key, config.commandCooldownSeconds)) {
-      return reply(message, "The meme vault is reloading. Try again shortly.");
-    }
-
-    const imagePath = getRandomMemeFile();
-
-    if (!imagePath) {
-      return reply(
-        message,
-        "No meme images found! Add PNG, JPG, WEBP, or GIF files to `handlers/entertainment/memes/`.",
-      );
-    }
-
-    const filename = path.basename(imagePath);
-
-    const attachment = new AttachmentBuilder(imagePath, {
-      name: filename,
-    });
-
-    return message.channel.send({
-      embeds: [
-        new EmbedBuilder()
-          .setColor(0x8b5cf6)
-          .setAuthor({
-            name: "YSABELLE • THE MEME VAULT",
-            iconURL: message.client.user.displayAvatarURL(),
-          })
-          .setDescription(
-            "### 🎲 RANDOM MEME DROP\nThe vault has selected its victim.",
-          )
-          .setImage(`attachment://${filename}`)
-          .setFooter({
-            text: `Requested by ${message.member.displayName}`,
-          })
-          .setTimestamp(),
-      ],
-      files: [attachment],
-      allowedMentions: { parse: [] },
-    });
-  }
   if (command === "!meme") {
     if ((args[0] || "").toLowerCase() === "category") {
-      if (!isAdmin(message.member))
+      if (!isAdmin(message.member)) {
         return reply(message, "Admin-only setting.");
+      }
 
       const category = (args[1] || "").toLowerCase();
       const available = ["general", "gaming", "school", "relationship"];
@@ -745,10 +836,12 @@ async function handleCommand(message) {
 
       config.memeCategory = category;
       saveConfig();
+
       return reply(message, `Default meme category set to **${category}**.`);
     }
 
     const key = getCooldownKey("meme", message);
+
     if (!checkAndSetCooldown(key, config.commandCooldownSeconds)) {
       return reply(
         message,
@@ -783,13 +876,14 @@ async function handleCommand(message) {
       config.memeCategory ||
       "general"
     ).toLowerCase();
+
     const result = getCategory(category);
     const text = getRandomMeme(category);
 
     const imageBuffer = createMemeImage(
       result.name,
       text,
-      message.member.displayName || message.author.username,
+      message.member?.displayName || message.author.username,
     );
 
     const attachment = new AttachmentBuilder(imageBuffer, {
@@ -799,7 +893,7 @@ async function handleCommand(message) {
     recordReaction(message, `meme-image:${result.name}`, text);
 
     return message.channel.send({
-      content: `🎨 **YSABELLE'S MEME PRINTER**  ·  ${result.name.toUpperCase()}`,
+      content: `🎨 **YSABELLE'S MEME PRINTER** · ${result.name.toUpperCase()}`,
       files: [attachment],
       allowedMentions: { parse: [] },
     });
@@ -807,10 +901,13 @@ async function handleCommand(message) {
 
   if (command === "!roast") {
     const targets = getMentionedMembers(message);
-    if (!targets.length)
+
+    if (!targets.length) {
       return reply(message, "Mention a real server member: `!roast @user`.");
+    }
 
     const target = targets[0];
+
     if (target.id === message.author.id) {
       return reply(
         message,
@@ -819,6 +916,7 @@ async function handleCommand(message) {
     }
 
     const key = getCooldownKey("roast", message, target.id);
+
     if (!checkAndSetCooldown(key, config.commandCooldownSeconds)) {
       return reply(
         message,
@@ -828,8 +926,6 @@ async function handleCommand(message) {
 
     let text = null;
 
-    // When the external dataset exists, respect its NSFW flag and use it.
-    // AI-generated roasts are only used when the dataset is unavailable.
     if (roastDataset.length === 0 && config.aiMode !== "local") {
       text = await generateAiRoast(target.displayName || target.user.username);
     }
@@ -851,6 +947,7 @@ async function handleCommand(message) {
       nsfw: config.nsfwEnabled,
       text: cleanText(text, 500),
     });
+
     saveHistory();
 
     return reply(message, text);
@@ -877,6 +974,7 @@ async function handleCommand(message) {
     }
 
     const key = getCooldownKey("ship", message);
+
     if (!checkAndSetCooldown(key, config.shipCooldownSeconds)) {
       return reply(message, "The matchmaking department is on break.");
     }
@@ -895,7 +993,9 @@ async function handleCommand(message) {
   if (command === "!entertainment") {
     const subcommand = (args[0] || "help").toLowerCase();
 
-    if (subcommand === "help") return reply(message, getHelpText());
+    if (subcommand === "help") {
+      return reply(message, getHelpText());
+    }
 
     if (subcommand === "status") {
       return reply(
@@ -915,12 +1015,14 @@ async function handleCommand(message) {
       );
     }
 
-    if (!isAdmin(message.member))
+    if (!isAdmin(message.member)) {
       return reply(message, "That setting is admin-only.");
+    }
 
     if (subcommand === "reset") {
       config = { ...DEFAULT_CONFIG };
       saveConfig();
+
       return reply(message, "Entertainment settings reset to defaults.");
     }
 
@@ -928,46 +1030,70 @@ async function handleCommand(message) {
   }
 
   if (command === "!darkhumor") {
-    if (!isAdmin(message.member)) return reply(message, "Admin-only setting.");
+    if (!isAdmin(message.member)) {
+      return reply(message, "Admin-only setting.");
+    }
+
     const value = (args[0] || "").toLowerCase();
+
     if (!["on", "off"].includes(value)) {
       return reply(message, "Use `!darkhumor on` or `!darkhumor off`.");
     }
+
     config.darkHumor = value === "on";
     saveConfig();
+
     return reply(message, `Dark humor is now **${value.toUpperCase()}**.`);
   }
 
   if (command === "!reactionchance") {
-    if (!isAdmin(message.member)) return reply(message, "Admin-only setting.");
+    if (!isAdmin(message.member)) {
+      return reply(message, "Admin-only setting.");
+    }
+
     const value = Number(args[0]);
+
     if (!Number.isInteger(value) || value < 0 || value > 30) {
       return reply(message, "Choose a whole number from 0 to 30.");
     }
+
     config.reactionChance = value;
     saveConfig();
+
     return reply(message, `Automatic reaction chance set to **${value}%**.`);
   }
 
   if (command === "!reactioncooldown") {
-    if (!isAdmin(message.member)) return reply(message, "Admin-only setting.");
+    if (!isAdmin(message.member)) {
+      return reply(message, "Admin-only setting.");
+    }
+
     const value = Number(args[0]);
+
     if (!Number.isInteger(value) || value < 10 || value > 600) {
       return reply(message, "Choose a cooldown from 10 to 600 seconds.");
     }
+
     config.reactionCooldownSeconds = value;
     saveConfig();
+
     return reply(message, `Reaction cooldown set to **${value} seconds**.`);
   }
 
   if (command === "!reactionmode") {
-    if (!isAdmin(message.member)) return reply(message, "Admin-only setting.");
+    if (!isAdmin(message.member)) {
+      return reply(message, "Admin-only setting.");
+    }
+
     const value = (args[0] || "").toLowerCase();
+
     if (!["on", "off"].includes(value)) {
       return reply(message, "Use `!reactionmode on` or `!reactionmode off`.");
     }
+
     config.automaticReactions = value === "on";
     saveConfig();
+
     return reply(
       message,
       `Automatic reactions are now **${value.toUpperCase()}**.`,
@@ -975,15 +1101,19 @@ async function handleCommand(message) {
   }
 
   if (command === "!reactionchannel") {
-    if (!isAdmin(message.member)) return reply(message, "Admin-only setting.");
+    if (!isAdmin(message.member)) {
+      return reply(message, "Admin-only setting.");
+    }
 
     if ((args[0] || "").toLowerCase() === "off") {
       config.disabledChannels = [];
       saveConfig();
+
       return reply(message, "Channel restrictions cleared.");
     }
 
     const channel = message.mentions.channels.first();
+
     if (!channel) {
       return reply(
         message,
@@ -992,14 +1122,17 @@ async function handleCommand(message) {
     }
 
     const index = config.disabledChannels.indexOf(channel.id);
+
     if (index >= 0) {
       config.disabledChannels.splice(index, 1);
       saveConfig();
+
       return reply(message, `Automatic reactions enabled in ${channel}.`);
     }
 
     config.disabledChannels.push(channel.id);
     saveConfig();
+
     return reply(message, `Automatic reactions disabled in ${channel}.`);
   }
 
@@ -1007,19 +1140,25 @@ async function handleCommand(message) {
 }
 
 async function handleAutomaticReaction(message) {
-  if (!config.enabled || !config.darkHumor || !config.automaticReactions)
+  if (!config.enabled || !config.darkHumor || !config.automaticReactions) {
     return;
+  }
+
   if (config.reactionChance <= 0) return;
   if (!message.guild || !message.member) return;
-  if (message.author.bot || message.webhookId || isCommand(message.content))
+  if (message.author.bot || message.webhookId || isCommand(message.content)) {
     return;
+  }
+
   if (config.disabledChannels.includes(message.channelId)) return;
   if (config.disabledUsers.includes(message.author.id)) return;
 
   const key = getCooldownKey("reaction", message);
+
   if (isCoolingDown(key)) return;
 
   const normalized = message.content.toLowerCase();
+
   const entries = Array.isArray(memeData.reaction_phrases)
     ? memeData.reaction_phrases
     : FALLBACK_MEMES.reaction_phrases;
@@ -1041,12 +1180,14 @@ async function handleAutomaticReaction(message) {
       : getCategory(match.category).items;
 
   const text = randomItem(responses);
+
   if (!text) return;
 
   setCooldown(key, config.reactionCooldownSeconds);
 
   try {
     await reply(message, text);
+
     recordReaction(message, `automatic:${match.category || "general"}`, text);
   } catch (error) {
     console.error("[Ysabelle] Automatic reaction failed:", error.message);
@@ -1065,6 +1206,7 @@ async function handleMessage(message) {
 
   if (isCommand(message.content)) {
     const command = message.content.trim().split(/\s+/)[0].toLowerCase();
+
     const knownCommands = new Set([
       "!meme",
       "!randommeme",
@@ -1085,11 +1227,13 @@ async function handleMessage(message) {
         await handleCommand(message);
       } catch (error) {
         console.error("[Ysabelle] Command failed:", error);
+
         await reply(
           message,
           "The entertainment engine crashed. Check the bot console.",
         );
       }
+
       return;
     }
   }
@@ -1097,7 +1241,7 @@ async function handleMessage(message) {
   try {
     await handleAutomaticReaction(message);
   } catch (error) {
-    console.error("[Ysabelle] Reaction handler failed:", error);
+    console.error("[Ysabelle] Reaction handler failed:", error.message);
   }
 }
 
@@ -1118,6 +1262,7 @@ function registerEntertainment(client) {
   }
 
   loadFiles();
+
   registeredClient = client;
   client.on(Events.MessageCreate, handleMessage);
 

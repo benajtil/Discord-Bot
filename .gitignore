@@ -110,3 +110,7 @@ dist
 
 # Large local auto-reply database
 handlers/autoreply/data/tcas.sqlite
+
+# Large local auto-reply datasets
+handlers/autoreply/data/tcas.sqlite
+handlers/autoreply/processed/tlcas-clean.txt

@@ -40,6 +40,7 @@ build/Release
 # Dependency directories
 node_modules/
 .env
+.env.*
 *.sqlite
 *.sqlite3
 data/confessions.json
@@ -112,5 +113,9 @@ dist
 handlers/autoreply/data/tcas.sqlite
 
 # Large local auto-reply datasets
-handlers/autoreply/data/tcas.sqlite
+handlers/autoreply/tlcas-main.zip
 handlers/autoreply/processed/tlcas-clean.txt
+handlers/autoreply/data/tcas.sqlite
+npm-debug.log*
+dist/
+coverage/

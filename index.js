@@ -925,11 +925,37 @@ if (!process.env.DISCORD_TOKEN) {
 client.once("ready", () => {
   console.log(`[Ysabelle] Logged in as ${client.user.tag}`);
 });
+client.on("shardDisconnect", (event, shardId) => {
+  console.error(
+    `[Ysabelle] Disconnected: shard=${shardId}, code=${event.code}`,
+  );
+});
 
+client.on("shardReconnecting", (shardId) => {
+  console.warn(`[Ysabelle] Reconnecting: shard=${shardId}`);
+});
+
+client.on("shardResume", (shardId) => {
+  console.log(`[Ysabelle] Connection resumed: shard=${shardId}`);
+});
+
+client.on("shardError", (error, shardId) => {
+  console.error(`[Ysabelle] Shard ${shardId} error:`, error);
+});
 client.on("error", (error) => {
   console.error("[Ysabelle] Discord client error:", error);
 });
+setInterval(() => {
+  const shard = client.ws.shards.first();
 
+  console.log("[Ysabelle Health]", {
+    loggedIn: client.isReady(),
+    user: client.user?.tag ?? "Not logged in",
+    websocketStatus: shard?.status ?? "No shard",
+    ping: shard?.ping ?? -1,
+    uptime: process.uptime(),
+  });
+}, 60_000);
 client.login(process.env.DISCORD_TOKEN).catch((error) => {
   console.error("[Ysabelle] Discord login failed:", error);
 });

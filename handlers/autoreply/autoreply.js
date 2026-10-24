@@ -1032,7 +1032,47 @@ function registerAutoReply(client) {
 
       return;
     }
+    if (/^!reply(?:\s|$)/i.test(content)) {
+      if (!message.reference?.messageId) {
+        await message
+          .reply("Reply to someone's message first, then type `!reply`.")
+          .catch(() => {});
+        return;
+      }
 
+      try {
+        const referencedMessage = await message.channel.messages.fetch(
+          message.reference.messageId,
+        );
+
+        if (!referencedMessage || referencedMessage.author.bot) {
+          await message
+            .reply("I need a message from a server member to reply to.")
+            .catch(() => {});
+          return;
+        }
+
+        const extra = content.replace(/^!reply\b/i, "").trim();
+
+        await handleMessage(message, client, {
+          author:
+            referencedMessage.author.displayName ||
+            referencedMessage.author.username,
+          content: referencedMessage.content || "[No text content]",
+          extra,
+        });
+      } catch (error) {
+        console.error("[Ysabelle Reply] Failed:", error.message || error);
+
+        await message
+          .reply(
+            "I couldn't access that message. It may have been deleted or become unavailable.",
+          )
+          .catch(() => {});
+      }
+
+      return;
+    }
     handleMessage(message, client).catch((error) => {
       console.error("[Ysabelle AutoReply]", error);
     });

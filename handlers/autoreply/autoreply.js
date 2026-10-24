@@ -1010,7 +1010,7 @@ function registerAutoReply(client) {
 
     const content = message.content.trim();
 
-    // Manual reposting works independently of automatic-reply settings.
+    // !chat: Delete the command and send the text as a normal message.
     if (/^!chat(?:\s|$)/i.test(content)) {
       const chatMessage = content.slice(5).trim();
 
@@ -1032,53 +1032,62 @@ function registerAutoReply(client) {
 
       return;
     }
+
+    // !reply: Delete the command and reply to the selected message.
     if (/^!reply(?:\s|$)/i.test(content)) {
+      const replyContent = content.replace(/^!reply\b/i, "").trim();
+
+      if (!replyContent) {
+        await message
+          .reply(
+            "Usage: Reply to a message and type `!reply your message here`.",
+          )
+          .catch(() => {});
+        return;
+      }
+
       if (!message.reference?.messageId) {
         await message
-          .reply("Reply to someone's message first, then type `!reply`.")
+          .reply(
+            "Reply to the message you want to respond to, then type `!reply your message here`.",
+          )
           .catch(() => {});
         return;
       }
 
       try {
-        const referencedMessage = await message.channel.messages.fetch(
+        const targetMessage = await message.channel.messages.fetch(
           message.reference.messageId,
         );
 
-        if (!referencedMessage || referencedMessage.author.bot) {
-          await message
-            .reply("I need a message from a server member to reply to.")
-            .catch(() => {});
-          return;
-        }
+        // Delete the command before sending the actual reply.
+        await message.delete();
 
-        const extra = content.replace(/^!reply\b/i, "").trim();
-
-        await handleMessage(message, client, {
-          author:
-            referencedMessage.author.displayName ||
-            referencedMessage.author.username,
-          content: referencedMessage.content || "[No text content]",
-          extra,
+        await targetMessage.reply({
+          content: replyContent,
+          allowedMentions: { parse: [] },
         });
       } catch (error) {
-        console.error("[Ysabelle Reply] Failed:", error.message || error);
+        console.error("[Ysabelle Reply]", error.message || error);
 
-        await message
-          .reply(
-            "I couldn't access that message. It may have been deleted or become unavailable.",
+        await message.channel
+          .send(
+            "I couldn't send the reply. Check my permissions and make sure the original message is still available.",
           )
           .catch(() => {});
       }
 
       return;
     }
+
+    // Existing AI and automatic-reply handling remains unchanged.
     handleMessage(message, client).catch((error) => {
       console.error("[Ysabelle AutoReply]", error);
     });
   });
 
   console.log("[Ysabelle Chat] Manual message reposting loaded.");
+  console.log("[Ysabelle Reply] Manual message replies loaded.");
   console.log(
     "[Ysabelle AutoReply] Automatic reply and mention controls loaded.",
   );

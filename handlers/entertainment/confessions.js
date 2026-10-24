@@ -1,5 +1,7 @@
 const {
   Events,
+  REST,
+  Routes,
   SlashCommandBuilder,
   EmbedBuilder,
   ModalBuilder,
@@ -17,6 +19,8 @@ const path = require("node:path");
 const DATA_DIR = path.join(__dirname, "../../data");
 const DATA_FILE = path.join(DATA_DIR, "confessions.json");
 const CONFESSION_CHANNEL_ID = process.env.CONFESSION_CHANNEL_ID;
+const CLIENT_ID = process.env.CLIENT_ID;
+const GUILD_ID = process.env.GUILD_ID;
 
 const MAX_CONFESSION_LENGTH = 1500;
 const MAX_REPLY_LENGTH = 1000;
@@ -54,22 +58,18 @@ function ensureDataFile() {
 function loadData() {
   ensureDataFile();
 
-  try {
-    const parsed = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
+  const data = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
 
-    if (
-      !parsed ||
-      !Array.isArray(parsed.confessions) ||
-      !Number.isInteger(parsed.nextId)
-    ) {
-      throw new Error("Invalid confession data structure");
-    }
-
-    return parsed;
-  } catch (error) {
-    console.error("[Confessions] Failed to load data:", error.message);
-    throw error;
+  if (
+    !data ||
+    !Array.isArray(data.confessions) ||
+    !Number.isSafeInteger(data.nextId) ||
+    data.nextId < 1
+  ) {
+    throw new Error("Invalid confession data structure.");
   }
+
+  return data;
 }
 
 function saveData(data) {
@@ -95,56 +95,103 @@ function findConfession(data, id) {
   return data.confessions.find((item) => item.id === numericId) || null;
 }
 
-async function hasRoleAboveBot(interaction) {
-  if (!interaction.guild) return false;
-
-  const botMember =
-    interaction.guild.members.me ||
-    (await interaction.guild.members.fetchMe().catch(() => null));
-
-  const member = await interaction.guild.members
-    .fetch(interaction.user.id)
-    .catch(() => null);
-
-  if (!botMember || !member) return false;
-
-  return member.roles.highest.position > botMember.roles.highest.position;
-}
-
-async function rejectIfRoleTooLow(interaction) {
-  const allowed = await hasRoleAboveBot(interaction);
-
-  if (allowed) return false;
-
-  const response = {
-    content:
-      "You need a role positioned above Ysabelle's highest role to use Anonymous Confessions.",
-    ephemeral: true,
-  };
-
-  if (interaction.deferred || interaction.replied) {
-    await interaction.followUp(response).catch(() => {});
-  } else {
-    await interaction.reply(response).catch(() => {});
+async function registerSlashCommands(client) {
+  if (!CLIENT_ID || !GUILD_ID || !process.env.DISCORD_TOKEN) {
+    console.error(
+      "[Confessions] Slash commands were not registered. Check CLIENT_ID, GUILD_ID, and DISCORD_TOKEN in .env.",
+    );
+    return;
   }
 
-  return true;
+  const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
+
+  try {
+    const route = Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID);
+
+    const existingCommands = await rest.get(route);
+    const confessionCommands = commands.map((command) => command.toJSON());
+
+    const mergedCommands = [
+      ...existingCommands.filter(
+        (existing) =>
+          !confessionCommands.some((command) => command.name === existing.name),
+      ),
+      ...confessionCommands,
+    ];
+
+    await rest.put(route, { body: mergedCommands });
+
+    console.log("[Confessions] Slash commands registered.");
+  } catch (error) {
+    console.error("[Confessions] Slash-command registration failed:", error);
+  }
 }
 
-async function getConfessionChannel(client) {
+async function getConfessionChannel(client, guildId) {
   if (!CONFESSION_CHANNEL_ID) {
-    throw new Error("CONFESSION_CHANNEL_ID is missing from .env");
+    throw new Error("CONFESSION_CHANNEL_ID is missing from .env.");
   }
 
   const channel = await client.channels
     .fetch(CONFESSION_CHANNEL_ID)
     .catch(() => null);
 
-  if (!channel || !channel.isTextBased() || !channel.guild) {
-    throw new Error("The configured confession channel is unavailable");
+  if (
+    !channel ||
+    !channel.isTextBased() ||
+    !channel.guild ||
+    channel.guild.id !== guildId
+  ) {
+    throw new Error(
+      "The configured confession channel is unavailable or belongs to another server.",
+    );
   }
 
   return channel;
+}
+async function postConfessionInvitation(client) {
+  try {
+    const channel = await getConfessionChannel(client, GUILD_ID);
+
+    const messages = await channel.messages.fetch({ limit: 50 });
+
+    const existing = messages.find(
+      (message) =>
+        message.author.id === client.user.id &&
+        message.components.some((row) =>
+          row.components.some(
+            (component) => component.customId === "confessions:open",
+          ),
+        ),
+    );
+
+    if (existing) {
+      console.log("[Confessions] Invitation message already exists.");
+      return;
+    }
+
+    await channel.send({
+      embeds: [
+        new EmbedBuilder()
+          .setColor(0xe879b9)
+          .setTitle("💌 Got something to confess?")
+          .setDescription(
+            "Have a secret, crush, confession, or something you want to get off your chest?\n\n" +
+              "Click the button below to submit your confession anonymously.\n\n" +
+              "You can also use `/confess`.",
+          )
+          .setFooter({
+            text: "Your identity stays hidden from other members.",
+          }),
+      ],
+      components: [confessionInviteButton()],
+      allowedMentions: { parse: [] },
+    });
+
+    console.log("[Confessions] Invitation message posted.");
+  } catch (error) {
+    console.error("[Confessions] Could not post invitation:", error);
+  }
 }
 
 function buildConfessionEmbed(id, content) {
@@ -218,15 +265,11 @@ function replyModal(id) {
 }
 
 async function handleConfessCommand(interaction) {
-  if (await rejectIfRoleTooLow(interaction)) return;
-
   await interaction.showModal(confessionModal());
 }
 
 async function handleConfessionSubmit(interaction) {
-  if (await rejectIfRoleTooLow(interaction)) return;
-
-  await interaction.deferReply({ ephemeral: true });
+  await interaction.deferReply({ flags: 64 });
 
   const content = interaction.fields.getTextInputValue("content").trim();
 
@@ -235,17 +278,21 @@ async function handleConfessionSubmit(interaction) {
   }
 
   let channel;
+  let data;
 
   try {
-    channel = await getConfessionChannel(interaction.client);
+    channel = await getConfessionChannel(
+      interaction.client,
+      interaction.guildId,
+    );
+    data = loadData();
   } catch (error) {
-    console.error("[Confessions] Channel error:", error.message);
+    console.error("[Confessions] Setup or data error:", error.message);
+
     return interaction.editReply(
-      "The confession channel is not configured correctly. Please contact an administrator.",
+      "The confession system is temporarily unavailable. Please contact an administrator.",
     );
   }
-
-  const data = loadData();
 
   if (data.confessions.length >= MAX_RECORDS) {
     return interaction.editReply(
@@ -254,6 +301,7 @@ async function handleConfessionSubmit(interaction) {
   }
 
   const id = data.nextId;
+
   const record = {
     id,
     guildId: interaction.guildId,
@@ -265,18 +313,27 @@ async function handleConfessionSubmit(interaction) {
     replies: [],
   };
 
-  const embed = buildConfessionEmbed(id, content);
+  data.confessions.push(record);
+  data.nextId += 1;
+
+  try {
+    saveData(data);
+  } catch (error) {
+    console.error("[Confessions] Could not save record:", error);
+
+    return interaction.editReply(
+      "Ysabelle couldn't save your confession. Nothing was published.",
+    );
+  }
 
   try {
     const publicMessage = await channel.send({
-      embeds: [embed],
+      embeds: [buildConfessionEmbed(id, content)],
       components: [replyButton(id)],
       allowedMentions: { parse: [] },
     });
 
     record.messageId = publicMessage.id;
-    data.confessions.push(record);
-    data.nextId += 1;
     saveData(data);
 
     await interaction.editReply(
@@ -285,31 +342,40 @@ async function handleConfessionSubmit(interaction) {
   } catch (error) {
     console.error("[Confessions] Submission error:", error);
 
-    return interaction.editReply(
-      "Ysabelle couldn't finish publishing your confession. Please try again later.",
+    await interaction.editReply(
+      "Ysabelle couldn't finish publishing your confession. Please contact an administrator if the record was created.",
     );
   }
 }
 
 async function handleReplyButton(interaction, id) {
-  if (await rejectIfRoleTooLow(interaction)) return;
-
   const data = loadData();
   const record = findConfession(data, id);
 
-  if (!record || record.guildId !== interaction.guildId) {
+  if (
+    !record ||
+    record.guildId !== interaction.guildId ||
+    record.channelId !== interaction.channelId
+  ) {
     return interaction.reply({
-      content: "That confession could not be found.",
-      ephemeral: true,
+      content: "That confession could not be found in this channel.",
+      ephemeral: 64,
     });
   }
 
   await interaction.showModal(replyModal(record.id));
 }
+function confessionInviteButton() {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId("confessions:open")
+      .setLabel("Make a confession")
+      .setEmoji("💌")
+      .setStyle(ButtonStyle.Primary),
+  );
+}
 
 async function handleReplySubmit(interaction, id) {
-  if (await rejectIfRoleTooLow(interaction)) return;
-
   await interaction.deferReply({ ephemeral: true });
 
   const content = interaction.fields.getTextInputValue("content").trim();
@@ -318,7 +384,18 @@ async function handleReplySubmit(interaction, id) {
     return interaction.editReply("Your reply has an invalid length.");
   }
 
-  const data = loadData();
+  let data;
+
+  try {
+    data = loadData();
+  } catch (error) {
+    console.error("[Confessions] Could not load reply data:", error);
+
+    return interaction.editReply(
+      "The confession system is temporarily unavailable.",
+    );
+  }
+
   const record = findConfession(data, id);
 
   if (!record || record.guildId !== interaction.guildId) {
@@ -328,24 +405,26 @@ async function handleReplySubmit(interaction, id) {
   let channel;
 
   try {
-    channel = await interaction.client.channels.fetch(record.channelId);
+    channel = await getConfessionChannel(
+      interaction.client,
+      interaction.guildId,
+    );
   } catch {
-    channel = null;
-  }
-
-  if (!channel || !channel.isTextBased()) {
     return interaction.editReply(
       "The confession channel is no longer available.",
     );
+  }
+
+  if (channel.id !== record.channelId) {
+    return interaction.editReply("The confession channel does not match.");
   }
 
   try {
     const publicReply = await channel.send({
       embeds: [buildReplyEmbed(record.id, content)],
       allowedMentions: { parse: [] },
-      reply: record.messageId
-        ? { messageReference: record.messageId, failIfNotExists: false }
-        : undefined,
+      messageReference: record.messageId || undefined,
+      failIfNotExists: false,
     });
 
     record.replies.push({
@@ -364,48 +443,71 @@ async function handleReplySubmit(interaction, id) {
     console.error("[Confessions] Reply error:", error);
 
     await interaction.editReply(
-      "Ysabelle couldn't publish your reply. Please try again later.",
+      "Ysabelle couldn't publish or save your reply. Please contact an administrator if a public reply appeared.",
     );
   }
 }
 
 async function handleConfessionInfo(interaction) {
-  if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
+  if (
+    !interaction.inGuild() ||
+    !interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)
+  ) {
     return interaction.reply({
       content: "Only server administrators can use this command.",
-      ephemeral: true,
+      flags: 64,
     });
   }
 
-  await interaction.deferReply({ ephemeral: true });
+  await interaction.deferReply({ flags: 64 });
+
+  let data;
+
+  try {
+    data = loadData();
+  } catch (error) {
+    console.error("[Confessions] Identity lookup failed:", error);
+    return interaction.editReply("The confession records could not be loaded.");
+  }
 
   const id = interaction.options.getString("id", true);
-  const data = loadData();
   const record = findConfession(data, id);
 
   if (!record || record.guildId !== interaction.guildId) {
     return interaction.editReply("No confession with that ID was found.");
   }
 
+  async function getUsername(userId) {
+    try {
+      const user = await interaction.client.users.fetch(userId);
+      return `${user.username} (\`${user.id}\`)`;
+    } catch {
+      return `Unknown user (\`${userId}\`)`;
+    }
+  }
+
+  const submitter = await getUsername(record.authorId);
+
   const lines = [
     `**Confession:** #${formatId(record.id)}`,
-    `**Submitter ID:** \`${record.authorId}\``,
+    `**Submitter:** ${submitter}`,
     `**Submitted:** <t:${Math.floor(new Date(record.createdAt).getTime() / 1000)}:F>`,
     `**Replies:** ${record.replies.length}`,
   ];
 
   if (record.replies.length) {
-    lines.push(
-      "",
-      "**Reply identities:**",
-      ...record.replies.map(
-        (reply, index) =>
-          `${index + 1}. User ID: \`${reply.authorId}\` — <t:${Math.floor(new Date(reply.createdAt).getTime() / 1000)}:F>`,
-      ),
-    );
+    lines.push("", "**Reply identities:**");
+
+    for (const [index, reply] of record.replies.entries()) {
+      const username = await getUsername(reply.authorId);
+
+      lines.push(
+        `${index + 1}. ${username} — <t:${Math.floor(new Date(reply.createdAt).getTime() / 1000)}:F>`,
+      );
+    }
   }
 
-  await interaction.editReply({
+  return interaction.editReply({
     content: lines.join("\n"),
     allowedMentions: { parse: [] },
   });
@@ -420,14 +522,22 @@ async function handleInteraction(interaction) {
     if (interaction.commandName === "confession-info") {
       return handleConfessionInfo(interaction);
     }
+
+    return;
   }
 
   if (interaction.isButton()) {
+    if (interaction.customId === "confessions:open") {
+      return interaction.showModal(confessionModal());
+    }
+
     const match = interaction.customId.match(/^confessions:reply:(\d+)$/);
 
     if (match) {
       return handleReplyButton(interaction, Number(match[1]));
     }
+
+    return;
   }
 
   if (interaction.isModalSubmit()) {
@@ -456,7 +566,7 @@ function registerConfessions(client) {
 
       const response = {
         content: "Something went wrong while processing that interaction.",
-        ephemeral: true,
+        flags: 64,
       };
 
       if (interaction.deferred) {
@@ -465,6 +575,11 @@ function registerConfessions(client) {
         await interaction.reply(response).catch(() => {});
       }
     }
+  });
+
+  client.once(Events.ClientReady, async () => {
+    await registerSlashCommands(client);
+    await postConfessionInvitation(client);
   });
 
   console.log("[Confessions] Handler registered.");

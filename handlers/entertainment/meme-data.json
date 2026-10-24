@@ -1,0 +1,91 @@
+{
+  "general": [
+    "The confidence is impressive. The evidence, however, has left the server.",
+    "This conversation needs adult supervision. Unfortunately, we're the adults.",
+    "Somewhere, a brain cell just submitted its resignation.",
+    "The plot is plotting, but nobody understands the budget.",
+    "We're not beating the allegations today.",
+    "This server runs on chaos, questionable decisions, and Wi-Fi.",
+    "That message had the structural integrity of wet cardboard.",
+    "The group project energy is astronomical.",
+    "I would explain, but my remaining brain cell is on break.",
+    "The council has reviewed this message and chosen collective confusion."
+  ],
+  "gaming": [
+    "Bro has a legendary inventory and a common-sense deficiency.",
+    "Skill issue? No, this is a full downloadable content pack of issues.",
+    "The tutorial was free. The consequences were not.",
+    "Respawn the brain first, then the character.",
+    "Your strategy has been classified as experimental for legal reasons.",
+    "The boss music started playing for the wrong person.",
+    "That play deserves a replay, a refund, and an investigation.",
+    "Ranked matchmaking really said: character development.",
+    "GG. Good grief.",
+    "The enemy team is not strong. Your decisions are just doing charity."
+  ],
+  "school": [
+    "The deadline is approaching faster than our collective will to live.",
+    "Academic weapon? More like a weaponized lack of preparation.",
+    "The assignment has been open for three weeks. It is now a historical document.",
+    "The group leader has entered the chat. The group members have left reality.",
+    "Your grades are not a horror story. They are a whole franchise.",
+    "We call that studying when the exam is already loading."
+  ],
+  "relationship": [
+    "The red flags are doing a synchronized dance routine.",
+    "This love story has more plot holes than a broken game update.",
+    "Cupid needs a performance review.",
+    "The relationship status is: please consult the terms and conditions.",
+    "That was not a talking stage. That was an unpaid internship.",
+    "Romance is temporary. Screenshots are forever."
+  ],
+  "reaction_phrases": [
+    {
+      "phrases": ["skill issue", "skill issue."],
+      "responses": [
+        "Skill issue detected. Diagnosis confirmed by absolutely nobody qualified.",
+        "Put it in the patch notes: user requires additional skill points."
+      ],
+      "category": "gaming"
+    },
+    {
+      "phrases": ["im dead", "i'm dead", "patay ako", "patay na ako"],
+      "responses": [
+        "Please submit your respawn request in triplicate.",
+        "Death has been notified. They said you're not on the schedule."
+      ],
+      "category": "general"
+    },
+    {
+      "phrases": ["i give up", "suko na ako", "ayoko na", "pagod na ako"],
+      "responses": [
+        "Take a breath first. The chaos can wait a minute. You don't have to solve everything at once."
+      ],
+      "category": "support"
+    },
+    {
+      "phrases": ["crush ko", "may crush ako", "i have a crush"],
+      "responses": [
+        "And thus begins another season of delusion. We wish the protagonist luck.",
+        "The romance department has opened a case. Evidence is currently unavailable."
+      ],
+      "category": "relationship"
+    },
+    {
+      "phrases": ["exam", "finals", "assignment", "deadline"],
+      "responses": [
+        "Academic boss fight detected. Recommended equipment: sleep, notes, and a plan.",
+        "The deadline is approaching. Panic is not a study method, but it is apparently the server tradition."
+      ],
+      "category": "school"
+    },
+    {
+      "phrases": ["gg", "ez", "easy win"],
+      "responses": [
+        "GG. Humility has disconnected from the match.",
+        "Victory achieved. Sportsmanship is still downloading."
+      ],
+      "category": "gaming"
+    }
+  ]
+}

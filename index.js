@@ -13,14 +13,12 @@ const {
   EmbedBuilder,
   PermissionFlagsBits,
   ChannelType,
+  SlashCommandBuilder,
+  MessageFlags,
 } = require("discord.js");
 
 const { QuickDB } = require("quick.db");
-const {
-  Canvas,
-  loadImage,
-  loadFont: registerFont,
-} = require("canvas-constructor/napi-rs");
+const { loadFont: registerFont } = require("canvas-constructor/napi-rs");
 const { createCanvas, loadImage: loadNapiImage } = require("@napi-rs/canvas");
 const moment = require("moment");
 const config = require("./config.json");
@@ -38,28 +36,36 @@ const client = new Client({
     GatewayIntentBits.MessageContent,
   ],
 });
-
+const {
+  registerEntertainment,
+} = require("./handlers/entertainment/meme-reactions");
 const registerMemory = require("./memory");
 const { registerAutoDelete } = require("./handlers/autodelete/autodelete");
 const { registerAutoShip } = require("./handlers/entertainment/autoship");
+const { registerAutoReply } = require("./handlers/autoreply/autoreply");
+const { handleWarnCommand } = require("./handlers/moderation/warn");
+const { registerConfessions } = require("./handlers/entertainment/confessions");
+
 registerAutoShip(client);
 registerAutoDelete(client);
 registerMemory(client, db, PREFIX);
 require("./farewell")(client, db, PREFIX, DEVELOPER_ID);
-const { registerAutoReply } = require("./handlers/autoreply/autoreply");
+registerAutoReply(client);
+registerConfessions(client);
+registerEntertainment(client);
 client.commands = new Collection();
 client.aliases = new Collection();
 
 const cooldowns = new Map();
 const COOLDOWN_SECONDS = 1;
+
 const fontDirectory = path.join(__dirname, "fonts");
 const vampireFont = path.join(fontDirectory, "Vampire Wars.ttf");
 const quicksandFont = path.join(fontDirectory, "Quicksand-SemiBold.ttf");
-const { registerConfessions } = require("./handlers/entertainment/confessions");
-registerConfessions(client);
-// ─────────────────────────────────────────────
+
+// --------------------------------------------------
 // Fonts
-// ─────────────────────────────────────────────
+// --------------------------------------------------
 
 try {
   if (fs.existsSync(vampireFont)) {
@@ -73,9 +79,9 @@ try {
   console.error("Could not register custom fonts:", error);
 }
 
-// ─────────────────────────────────────────────
+// --------------------------------------------------
 // Background configuration
-// ─────────────────────────────────────────────
+// --------------------------------------------------
 
 function isValidHttpUrl(value) {
   try {
@@ -137,9 +143,9 @@ async function loadBackground(source) {
   return loadNapiImage(fs.readFileSync(localPath));
 }
 
-// ─────────────────────────────────────────────
+// --------------------------------------------------
 // Avatar loading
-// ─────────────────────────────────────────────
+// --------------------------------------------------
 
 async function loadUserAvatar(user) {
   const avatarUrl = user.displayAvatarURL({
@@ -148,26 +154,18 @@ async function loadUserAvatar(user) {
     forceStatic: true,
   });
 
-  console.log("Loading avatar for:", user.username);
-
   const response = await fetch(avatarUrl);
 
   if (!response.ok) {
     throw new Error(`Could not download avatar: ${response.status}`);
   }
 
-  const buffer = Buffer.from(await response.arrayBuffer());
-  const avatar = await loadNapiImage(buffer);
-
-  console.log(`Avatar loaded: ${avatar.width}x${avatar.height}`);
-
-  return avatar;
+  return loadNapiImage(Buffer.from(await response.arrayBuffer()));
 }
 
-// ─────────────────────────────────────────────
-// Complete welcome image renderer
-// Uses @napi-rs/canvas for ALL drawing.
-// ─────────────────────────────────────────────
+// --------------------------------------------------
+// Welcome image renderer
+// --------------------------------------------------
 
 async function createWelcomeImage({
   background,
@@ -183,34 +181,27 @@ async function createWelcomeImage({
   const canvas = createCanvas(width, height);
   const ctx = canvas.getContext("2d");
 
-  // Draw the background.
   ctx.drawImage(background, 0, 0, width, height);
 
-  // Dark overlay to make text easier to read.
   ctx.fillStyle = "rgba(0, 0, 0, 0.45)";
   ctx.fillRect(0, 0, width, height);
 
-  // Avatar position and dimensions.
   const centerX = 150;
   const centerY = 150;
   const radius = 110;
   const borderWidth = 4;
 
-  // Draw the white border first.
   ctx.beginPath();
   ctx.arc(centerX, centerY, radius + borderWidth, 0, Math.PI * 2);
   ctx.fillStyle = "#FFFFFF";
   ctx.fill();
 
-  // Clip the avatar to a circle and draw it.
   ctx.save();
-
   ctx.beginPath();
   ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
   ctx.closePath();
   ctx.clip();
 
-  // drawImage receives the actual loaded image object.
   ctx.drawImage(
     avatar,
     centerX - radius,
@@ -221,7 +212,6 @@ async function createWelcomeImage({
 
   ctx.restore();
 
-  // Text styling.
   const fontName = fs.existsSync(quicksandFont)
     ? "Quicksand-SemiBold"
     : "Arial";
@@ -229,12 +219,10 @@ async function createWelcomeImage({
   ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";
 
-  // WELCOME heading.
   ctx.fillStyle = "rgba(255, 255, 255, 0.85)";
   ctx.font = `22px "${fontName}"`;
   ctx.fillText("WELCOME", 317, 68);
 
-  // Member display name.
   ctx.fillStyle = "#FFFFFF";
   ctx.font = `44px "${fontName}"`;
 
@@ -250,30 +238,24 @@ async function createWelcomeImage({
 
   ctx.fillText(safeName, 295, 128);
 
-  // Divider.
   ctx.fillStyle = "rgba(255, 255, 255, 0.30)";
   ctx.fillRect(295, 138, width - 325, 2);
 
-  // Member number.
   ctx.fillStyle = "rgba(255, 255, 255, 0.90)";
   ctx.font = `22px "${fontName}"`;
   ctx.fillText(`Member #${memberCount}`, 295, 175);
 
-  // Join date.
   ctx.fillStyle = "rgba(255, 255, 255, 0.75)";
   ctx.font = `18px "${fontName}"`;
   ctx.fillText(`Joined ${joinedDate}`, 295, 210);
-
-  // Server name.
-  ctx.fillStyle = "rgba(255, 255, 255, 0.65)";
   ctx.fillText(String(serverName).slice(0, 42), 295, 245);
 
   return canvas.toBuffer("image/png");
 }
 
-// ─────────────────────────────────────────────
-// Other helpers
-// ─────────────────────────────────────────────
+// --------------------------------------------------
+// Helpers
+// --------------------------------------------------
 
 function isStaff(message) {
   return (
@@ -320,9 +302,7 @@ function makeEmbed(description, member, thumbnailUrl, bannerUrl) {
     .setTitle(`Welcome to ${member.guild.name}`)
     .setDescription(description)
     .setColor(0x8b5cf6)
-    .setFooter({
-      text: `Member #${member.guild.memberCount}`,
-    })
+    .setFooter({ text: `Member #${member.guild.memberCount}` })
     .setTimestamp();
 
   if (thumbnailUrl && isValidHttpUrl(thumbnailUrl)) {
@@ -347,11 +327,208 @@ function chooseBackground() {
   return backgroundLinks[Math.floor(Math.random() * backgroundLinks.length)];
 }
 
-// ─────────────────────────────────────────────
-// Embed welcome event
-// ─────────────────────────────────────────────
+// --------------------------------------------------
+// Private help embed
+// --------------------------------------------------
 
-registerAutoReply(client);
+function buildHelpEmbed(user) {
+  return new EmbedBuilder()
+    .setTitle("Ysabelle • Private Command Guide")
+    .setColor(0x8b5cf6)
+    .setDescription(
+      [
+        `Hello, ${user.username}!`,
+        "",
+        "This guide is visible only to you when opened through `/help`.",
+        "",
+        `**Prefix:** \`${PREFIX}\``,
+        "Replace placeholders such as `@member`, `#channel`, and `<text>` with actual values.",
+      ].join("\n"),
+    )
+    .addFields(
+      {
+        name: "📌 General",
+        value: [
+          "`!help` — Show this private guide",
+          "`!ping` — Check bot latency",
+          "`!server` — View server information",
+          "`!userinfo [@member]` — View member information",
+        ].join("\n"),
+      },
+      {
+        name: "👋 Welcome Setup",
+        value: [
+          "`!setwelcome #channel` — Set the embed welcome channel",
+          "`!setwelcomeimage #channel` — Set the image welcome channel",
+          "`!welcomedesc <text>` — Set the welcome message",
+          "`!welcomethumbnail <URL>` — Set the welcome thumbnail",
+          "`!welcomebanner <URL>` — Set the welcome banner",
+          "`!welcomeoff` — Disable embed welcomes",
+          "`!welcomeimageoff` — Disable image welcomes",
+          "`!welcometest` — Test the embed welcome",
+          "`!welcomeimagetest` — Test the image welcome",
+        ].join("\n"),
+      },
+      {
+        name: "🚪 Farewell",
+        value: [
+          "`!setleave #channel` — Set the farewell channel, if implemented",
+          "`!leavedesc <text>` — Customize farewell text, if implemented",
+          "`!leaveoff` — Disable farewells, if implemented",
+          "`!leavetest` — Test farewells, if implemented",
+        ].join("\n"),
+      },
+      {
+        name: "📝 Welcome Template Variables",
+        value: [
+          "`?user` — Member display name",
+          "`?tag` — Username or user tag",
+          "`?mention` — Mention the member",
+          "`?server` — Server name",
+          "`?rank` — Current member count",
+          "`?useravatar` — Member avatar URL",
+          "`?serveravatar` — Server icon URL",
+        ].join("\n"),
+      },
+      {
+        name: "🧠 Conversation Memory",
+        value: [
+          "`!memory help` — Memory command guide",
+          "`!memory on` — Enable memory storage",
+          "`!memory off` — Disable new memory storage",
+          "`!memory show` — View recent history",
+          "`!memory remember <fact>` — Save a fact",
+          "`!memory facts` — View saved facts",
+          "`!memory forget <number>` — Delete a saved fact",
+          "`!memory clear` — Clear saved history",
+          "`!memory channel` — View channel history, if supported",
+          "`!memory channelclear` — Clear channel history, if supported",
+        ].join("\n"),
+      },
+      {
+        name: "🤖 AI & Personality",
+        value: [
+          "`!aimode auto` — Automatic AI provider selection, if implemented",
+          "`!aimode ollama` — Select Ollama, if implemented",
+          "`!aimode gemini` — Select Gemini, if implemented",
+          "`!tone english` — English responses, if implemented",
+          "`!tone tagalog` — Tagalog responses, if implemented",
+          "`!tone taglish` — Taglish responses, if implemented",
+        ].join("\n"),
+      },
+      {
+        name: "😂 Meme & Roast",
+        value: [
+          "`!meme` — Random meme, if registered",
+          "`!meme gaming` — Gaming memes, if supported",
+          "`!meme school` — School memes, if supported",
+          "`!meme relationship` — Relationship memes, if supported",
+          "`!roast @member` — Roast a member, if registered",
+          "`!ship @member1 @member2` — Ship two members, if supported",
+          "`!nsfw status` — Check NSFW setting, if supported",
+          "`!nsfw on/off` — Change NSFW setting, if supported",
+          "`!entertainment help` — Entertainment guide, if supported",
+        ].join("\n"),
+      },
+      {
+        name: "💞 AutoShip",
+        value:
+          "AutoShip is registered. Its exact commands depend on your `handlers/entertainment/autoship.js` module.",
+      },
+      {
+        name: "🧹 AutoDelete",
+        value:
+          "AutoDelete is registered. Its exact commands depend on your `handlers/autodelete/autodelete.js` module.",
+      },
+      {
+        name: "💜 Confessions",
+        value:
+          "`/confess` — Submit a confession if your confessions module registers this command.",
+      },
+      {
+        name: "🛡️ Moderation",
+        value: [
+          "`!warn @member <reason>` — Use the registered warning handler",
+          "Other moderation commands depend on your moderation modules.",
+        ].join("\n"),
+      },
+    )
+    .setFooter({ text: "Ysabelle • Kator6" })
+    .setTimestamp();
+}
+
+// --------------------------------------------------
+// Register /help without replacing other commands
+// --------------------------------------------------
+
+async function registerHelpCommand() {
+  try {
+    const helpData = new SlashCommandBuilder()
+      .setName("ysabelle-help")
+      .setDescription("Open Ysabelle's private command guide")
+      .toJSON();
+
+    // Fetch existing global commands without deleting other commands.
+    const existingCommands = await client.application.commands.fetch();
+
+    const existingHelp = existingCommands.find(
+      (command) => command.name === "ysabelle-help",
+    );
+
+    if (existingHelp) {
+      await client.application.commands.edit(existingHelp.id, helpData);
+
+      console.log("Updated global command: /ysabelle-help");
+    } else {
+      const created = await client.application.commands.create(helpData);
+
+      console.log(`Created global command: /${created.name}`);
+    }
+
+    // Verify what is registered globally.
+    const registeredCommands = await client.application.commands.fetch();
+
+    console.log(
+      "Globally registered commands:",
+      registeredCommands.map((command) => `/${command.name}`),
+    );
+  } catch (error) {
+    console.error("Failed to register /ysabelle-help:", error);
+  }
+}
+
+// --------------------------------------------------
+// Slash commands
+// --------------------------------------------------
+
+client.on(Events.InteractionCreate, async (interaction) => {
+  if (!interaction.isChatInputCommand()) return;
+
+  if (interaction.commandName === "ysabelle-help") {
+    try {
+      await interaction.reply({
+        embeds: [buildHelpEmbed(interaction.user)],
+        flags: MessageFlags.Ephemeral,
+      });
+    } catch (error) {
+      console.error("Could not send private help:", error);
+
+      if (!interaction.replied && !interaction.deferred) {
+        await interaction
+          .reply({
+            content: "I couldn't display the help guide. Please try again.",
+            flags: MessageFlags.Ephemeral,
+          })
+          .catch(() => {});
+      }
+    }
+  }
+});
+
+// --------------------------------------------------
+// Embed welcome event
+// --------------------------------------------------
+
 client.on(Events.GuildMemberAdd, async (member) => {
   try {
     const channelId = await db.get(`welcome_${member.guild.id}`);
@@ -368,11 +545,9 @@ client.on(Events.GuildMemberAdd, async (member) => {
       "Hey ?mention! Welcome to **?server**. You're member **#?rank**. Have fun and enjoy Kator6!";
 
     const description = replaceWelcomeVariables(text, member);
-
     const thumbnail = thumbnailTemplate
       ? replaceUrlVariables(thumbnailTemplate, member)
       : null;
-
     const banner = bannerTemplate
       ? replaceUrlVariables(bannerTemplate, member)
       : null;
@@ -388,28 +563,22 @@ client.on(Events.GuildMemberAdd, async (member) => {
 
     await channel.send({
       embeds: [makeEmbed(description, member, thumbnail, banner)],
-      allowedMentions: {
-        users: [member.id],
-      },
+      allowedMentions: { users: [member.id] },
     });
   } catch (error) {
     console.error("Embed welcome error:", error);
   }
 });
 
-// ─────────────────────────────────────────────
+// --------------------------------------------------
 // Generated image welcome event
-// ─────────────────────────────────────────────
+// --------------------------------------------------
 
 client.on(Events.GuildMemberAdd, async (member) => {
   try {
     const channelId = await db.get(`welcomeimg_${member.guild.id}`);
     if (!channelId) return;
-
-    if (!backgroundLinks.length) {
-      console.warn("No valid image backgrounds are configured.");
-      return;
-    }
+    if (!backgroundLinks.length) return;
 
     const channel = await member.guild.channels
       .fetch(channelId)
@@ -441,96 +610,48 @@ client.on(Events.GuildMemberAdd, async (member) => {
     await channel.send({
       content: `Welcome to **${member.guild.name}**, <@${member.id}>!`,
       files: [attachment],
-      allowedMentions: {
-        users: [member.id],
-      },
+      allowedMentions: { users: [member.id] },
     });
   } catch (error) {
     console.error("Image welcome error:", error);
   }
 });
 
-// ─────────────────────────────────────────────
-// Help
-// ─────────────────────────────────────────────
-
-async function sendHelp(message) {
-  const embed = new EmbedBuilder()
-    .setTitle("Ysabelle • Command Guide")
-    .setColor(0x8b5cf6)
-    .setDescription("Kator6's welcome, farewell, and utility commands.")
-    .addFields(
-      {
-        name: "General",
-        value: [
-          "`!help` — Show this help message",
-          "`!ping` — Check bot response",
-          "`!server` — Show server information",
-          "`!userinfo [@member]` — Show member information",
-        ].join("\n"),
-      },
-      {
-        name: "Welcome setup • Manage Server",
-        value: [
-          "`!setwelcome #channel` — Set embed welcome channel",
-          "`!setwelcomeimage #channel` — Set image-card channel",
-          "`!welcomedesc <text>` — Set the embed description",
-          "`!welcomethumbnail <URL>` — Set thumbnail template",
-          "`!welcomebanner <URL>` — Set optional embed banner",
-          "`!welcomeoff` — Disable embed welcomes",
-          "`!welcomeimageoff` — Disable image welcomes",
-          "`!welcometest` — Preview the embed welcome",
-          "`!welcomeimagetest` — Preview the image card",
-        ].join("\n"),
-      },
-      {
-        name: "Farewell setup • Manage Server",
-        value: [
-          "`!setleave #channel` — Set a separate farewell channel",
-          "`!leavedesc <text>` — Customize the farewell message",
-          "`!leavetest` — Preview the farewell message",
-          "`!leaveoff` — Disable farewell messages",
-        ].join("\n"),
-      },
-      {
-        name: "Conversation Memory",
-        value: [
-          "`!memory help` — Show memory commands",
-          "`!memory on` — Opt in to message storage",
-          "`!memory off` — Stop storing new messages",
-          "`!memory show` — DM your recent history",
-          "`!memory remember <fact>` — Save a long-term fact",
-          "`!memory facts` — View saved facts",
-          "`!memory forget <number>` — Delete a fact",
-          "`!memory clear` — Delete your saved history",
-          "`!memory channel` — Staff: view channel history",
-          "`!memory channelclear` — Staff: clear channel history",
-        ].join("\n"),
-      },
-      {
-        name: "Welcome template variables",
-        value:
-          "`?user`, `?tag`, `?mention`, `?server`, `?rank`, `?useravatar`, `?serveravatar`",
-      },
-      {
-        name: "Farewell template variables",
-        value: "`?user`, `?tag`, `?server`, `?count`",
-      },
-    )
-    .setFooter({
-      text: "Only trusted staff should configure welcome and farewell settings.",
-    });
-
-  return message.reply({ embeds: [embed] });
-}
-
-// ─────────────────────────────────────────────
-// Message commands
-// ─────────────────────────────────────────────
+// --------------------------------------------------
+// Prefix commands
+// --------------------------------------------------
 
 client.on(Events.MessageCreate, async (message) => {
   if (message.author.bot || !message.guild) return;
   if (!message.content.startsWith(PREFIX)) return;
+
+  const input = message.content.slice(PREFIX.length).trim();
+  if (!input) return;
+
+  const [rawCommand, ...args] = input.split(/\s+/);
+  const command = rawCommand.toLowerCase();
+  const rest = input.slice(rawCommand.length).trim();
+
+  if (command === "help") {
+    await message.delete().catch(() => {});
+
+    const reply = await message.channel
+      .send({
+        content: `${message.author}, use \`/ysabelle-help\` to open Ysabelle's private command guide.`,
+        allowedMentions: {
+          users: [message.author.id],
+        },
+      })
+      .catch(() => null);
+
+    if (reply) {
+      setTimeout(() => {
+        reply.delete().catch(() => {});
+      }, 5000);
+    }
+
+    return;
+  }
 
   const now = Date.now();
   const expiry = cooldowns.get(message.author.id);
@@ -549,16 +670,7 @@ client.on(Events.MessageCreate, async (message) => {
     }
   }, COOLDOWN_SECONDS * 1000);
 
-  const input = message.content.slice(PREFIX.length).trim();
-  if (!input) return;
-
-  const [rawCommand, ...args] = input.split(/\s+/);
-  const command = rawCommand.toLowerCase();
-  const rest = input.slice(rawCommand.length).trim();
-
   try {
-    if (command === "help") return sendHelp(message);
-
     if (command === "ping") {
       return message.reply(`Pong! ${client.ws.ping} ms`);
     }
@@ -590,9 +702,7 @@ client.on(Events.MessageCreate, async (message) => {
           ? await message.guild.members.fetch(args[0]).catch(() => null)
           : message.member);
 
-      if (!target) {
-        return message.reply("I couldn't find that member.");
-      }
+      if (!target) return message.reply("I couldn't find that member.");
 
       const embed = new EmbedBuilder()
         .setTitle(`User Information • ${target.displayName}`)
@@ -609,11 +719,7 @@ client.on(Events.MessageCreate, async (message) => {
             value: target.user.tag || target.user.username,
             inline: true,
           },
-          {
-            name: "User ID",
-            value: target.id,
-            inline: true,
-          },
+          { name: "User ID", value: target.id, inline: true },
           {
             name: "Joined server",
             value: target.joinedTimestamp
@@ -630,6 +736,8 @@ client.on(Events.MessageCreate, async (message) => {
 
       return message.reply({ embeds: [embed] });
     }
+
+    if (await handleWarnCommand(message)) return;
 
     const setupCommands = [
       "setwelcome",
@@ -731,7 +839,6 @@ client.on(Events.MessageCreate, async (message) => {
         "Hey ?mention! Welcome to **?server**. You're member **#?rank**. Have fun!";
 
       const description = replaceWelcomeVariables(text, message.member);
-
       const thumbnailTemplate = await db.get(`thumbnail_${guildId}`);
       const bannerTemplate = await db.get(`image_${guildId}`);
 
@@ -745,9 +852,7 @@ client.on(Events.MessageCreate, async (message) => {
 
       return message.channel.send({
         embeds: [makeEmbed(description, message.member, thumbnail, banner)],
-        allowedMentions: {
-          users: [message.author.id],
-        },
+        allowedMentions: { users: [message.author.id] },
       });
     }
 
@@ -778,9 +883,7 @@ client.on(Events.MessageCreate, async (message) => {
         name: "ysabelle-welcome-test.png",
       });
 
-      return message.channel.send({
-        files: [attachment],
-      });
+      return message.channel.send({ files: [attachment] });
     }
   } catch (error) {
     console.error(`Command "${command}" failed:`, error);
@@ -791,15 +894,12 @@ client.on(Events.MessageCreate, async (message) => {
   }
 });
 
-// ─────────────────────────────────────────────
+// --------------------------------------------------
 // Keep-alive HTTP server
-// ─────────────────────────────────────────────
+// --------------------------------------------------
 
 const server = http.createServer((_req, res) => {
-  res.writeHead(200, {
-    "Content-Type": "text/plain",
-  });
-
+  res.writeHead(200, { "Content-Type": "text/plain" });
   res.end("Ysabelle is online.");
 });
 
@@ -811,13 +911,15 @@ server.on("error", (error) => {
   console.error("Keep-alive server error:", error);
 });
 
-// ─────────────────────────────────────────────
+// --------------------------------------------------
 // Ready and login
-// ─────────────────────────────────────────────
+// --------------------------------------------------
 
-client.once(Events.ClientReady, (readyClient) => {
+client.once(Events.ClientReady, async (readyClient) => {
   readyClient.user.setStatus("dnd");
   console.log(`Logged in as ${readyClient.user.tag}`);
+
+  await registerHelpCommand();
 });
 
 process.on("unhandledRejection", (error) => {

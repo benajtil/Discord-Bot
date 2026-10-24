@@ -1,0 +1,15 @@
+{
+  "enabled": true,
+  "darkHumor": true,
+  "automaticReactions": true,
+  "reactionChance": 30,
+  "reactionCooldownSeconds": 60,
+  "commandCooldownSeconds": 5,
+  "shipCooldownSeconds": 30,
+  "memeCategory": "general",
+  "disabledChannels": [],
+  "disabledUsers": [],
+  "aiMode": "hybrid",
+  "maxHistoryEntries": 200,
+  "nsfwEnabled": true
+}

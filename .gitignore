@@ -107,3 +107,6 @@ dist
 
 # TernJS port file
 .tern-port
+
+# Large local auto-reply database
+handlers/autoreply/data/tcas.sqlite

@@ -1517,8 +1517,8 @@ async function handleManualCommand(message, client, content) {
     }
   }
 
+  // Step 1: Send the intended message.
   try {
-    // Send successfully before deleting the command.
     if (isChat) {
       await message.channel.send({
         content: commandText,
@@ -1530,32 +1530,15 @@ async function handleManualCommand(message, client, content) {
         allowedMentions: { parse: [] },
       });
     }
-
-    // If deletion fails, the sent message remains posted.
-    await message.delete();
-
-    await logManualCommandAudit({
-      message,
-      client,
-      commandName,
-      status: "SUCCESS",
-      details: isChat
-        ? "Message posted normally in the channel."
-        : "Message posted as a reply to the selected message.",
-      targetMessage,
-      config,
-      originalContent,
-      originalRoles,
-    });
   } catch (error) {
-    console.error(`[Ysabelle ${commandName}]`, error.message || error);
+    console.error(`[Ysabelle ${commandName}] Send failed:`, error);
 
     await logManualCommandAudit({
       message,
       client,
       commandName,
       status: "FAILED",
-      details: error.message || "Unknown error.",
+      details: `Message send failed: ${error.message || "Unknown error."}`,
       targetMessage,
       config,
       originalContent,
@@ -1563,10 +1546,38 @@ async function handleManualCommand(message, client, content) {
     });
 
     await message.channel
-      .send(
-        "I couldn't complete that command. Check my permissions and try again.",
-      )
+      .send("I couldn't send that message. Check my permissions and try again.")
       .catch(() => {});
+
+    return true;
+  }
+
+  // Step 2: The message was sent. Record success independently.
+  await logManualCommandAudit({
+    message,
+    client,
+    commandName,
+    status: "SUCCESS",
+    details: isChat
+      ? "Message posted normally in the channel."
+      : "Message posted as a reply to the selected message.",
+    targetMessage,
+    config,
+    originalContent,
+    originalRoles,
+  });
+
+  // Step 3: Delete the command separately.
+  // A deletion failure must not mark the sent message as FAILED.
+  try {
+    if (message.deletable) {
+      await message.delete();
+    }
+  } catch (error) {
+    console.warn(
+      `[Ysabelle ${commandName}] Message was sent, but command deletion failed:`,
+      error.message || error,
+    );
   }
 
   return true;

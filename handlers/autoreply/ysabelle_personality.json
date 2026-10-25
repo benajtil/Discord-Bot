@@ -1,5 +1,14 @@
 {
   "settings": {
+    "manualCommands": {
+      "chatRoleIds": [
+        "1561340819846205450"
+      ],
+      "replyRoleIds": [],
+      "adminsBypass": true,
+      "auditChannelId": "1561370923431628891",
+      "logMessageContent": true
+    },
     "defaultPersonality": "friendly",
     "maxStoredExamples": 200,
     "maxHistoryMessages": 12,

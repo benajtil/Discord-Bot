@@ -1,4 +1,4 @@
-const { Events, PermissionsBitField } = require("discord.js");
+const { Events, PermissionsBitField, EmbedBuilder } = require("discord.js");
 const fs = require("node:fs");
 const path = require("node:path");
 const { GoogleGenAI } = require("@google/genai");
@@ -995,10 +995,592 @@ GENERAL RULES:
   }
 }
 
+/* =========================================================
+   YSABELLE MANUAL COMMAND AUDIT LOGGER
+   Tracks !chat and !reply usage, permissions, and results.
+   ========================================================= */
+
+/* =========================================================
+   YSABELLE MANUAL COMMAND AUDIT LOGGER
+   Tracks !chat and !reply usage, permissions, and results.
+   ========================================================= */
+
+function getManualCommandSettings(config) {
+  return config.settings?.manualCommands ?? {};
+}
+
+function canUseManualCommand(message, config, commandName) {
+  const settings = getManualCommandSettings(config);
+
+  const isAdmin = message.member?.permissions.has(
+    PermissionsBitField.Flags.Administrator,
+  );
+
+  // Administrators bypass role restrictions by default.
+  if (settings.adminsBypass !== false && isAdmin) {
+    return true;
+  }
+
+  const roleKey = commandName === "!chat" ? "chatRoleIds" : "replyRoleIds";
+
+  const allowedRoleIds = settings[roleKey] ?? [];
+
+  // Empty role list means administrators only.
+  if (allowedRoleIds.length === 0) {
+    return false;
+  }
+
+  return (
+    message.member?.roles.cache.some((role) =>
+      allowedRoleIds.includes(role.id),
+    ) ?? false
+  );
+}
+
+async function logManualCommandAudit({
+  message,
+  client,
+  commandName,
+  status,
+  details = "",
+  targetMessage = null,
+  config,
+  originalContent,
+  originalRoles,
+}) {
+  const settings = getManualCommandSettings(config);
+
+  console.log(
+    `[Ysabelle Audit] ${commandName} | ` +
+      `User: ${message.author.tag} (${message.author.id}) | ` +
+      `Status: ${status} | ${details}`,
+  );
+
+  const auditChannelId = settings.auditChannelId;
+
+  if (!auditChannelId) return;
+
+  try {
+    const auditChannel = await client.channels.fetch(auditChannelId);
+
+    if (
+      !auditChannel?.isTextBased() ||
+      typeof auditChannel.send !== "function"
+    ) {
+      console.warn("[Ysabelle Audit] Configured audit channel is invalid.");
+      return;
+    }
+
+    const roleText =
+      originalRoles ||
+      message.member?.roles.cache
+        .filter((role) => role.id !== message.guild.id)
+        .map((role) => `${role.name} (${role.id})`)
+        .join(", ") ||
+      "No roles found";
+
+    const loggedContent =
+      settings.logMessageContent === false
+        ? "[Message content logging disabled]"
+        : (originalContent ?? message.content ?? "[No content]").slice(0, 1000);
+
+    const colors = {
+      SUCCESS: 0x2ecc71,
+      DENIED: 0xe74c3c,
+      FAILED: 0xf39c12,
+    };
+
+    const embed = new EmbedBuilder()
+      .setTitle(`Manual Command Audit: ${commandName}`)
+      .setColor(colors[status] ?? 0x5865f2)
+      .addFields(
+        {
+          name: "User",
+          value: `${message.author} (\`${message.author.id}\`)`,
+        },
+        {
+          name: "Roles",
+          value: roleText.slice(0, 1024),
+        },
+        {
+          name: "Channel",
+          value: `${message.channel} (\`${message.channel.id}\`)`,
+        },
+        {
+          name: "Status",
+          value: status,
+          inline: true,
+        },
+        {
+          name: "Command Message",
+          value: loggedContent || "[Empty]",
+        },
+      )
+      .setTimestamp();
+
+    if (details) {
+      embed.addFields({
+        name: "Details",
+        value: details.slice(0, 1024),
+      });
+    }
+
+    if (targetMessage) {
+      embed.addFields({
+        name: "Reply Target",
+        value:
+          `Author: ${targetMessage.author?.tag ?? "Unknown"}\n` +
+          `User ID: ${targetMessage.author?.id ?? "Unknown"}\n` +
+          `Message ID: ${targetMessage.id}`,
+      });
+    }
+
+    await auditChannel.send({ embeds: [embed] });
+  } catch (error) {
+    console.error(
+      "[Ysabelle Audit] Failed to send audit log:",
+      error.message || error,
+    );
+  }
+}
+
+/* =========================================================
+   MANUAL COMMAND HANDLER
+   !chat  - Posts a normal channel message.
+   !reply - Replies to the message being referenced.
+   ========================================================= */
+
+async function handleManualConfigCommand(message, client, content) {
+  if (!/^!manualcmd(?:\s|$)/i.test(content)) {
+    return false;
+  }
+
+  const isAdmin = message.member?.permissions.has(
+    PermissionsBitField.Flags.Administrator,
+  );
+
+  if (!isAdmin) {
+    await message.reply(
+      "You need the **Administrator** permission to configure manual commands.",
+    );
+    return true;
+  }
+
+  let config;
+
+  try {
+    config = loadConfig();
+  } catch (error) {
+    console.error("[Ysabelle ManualCmd] Failed to load configuration:", error);
+
+    await message.reply("I couldn't load the manual command configuration.");
+    return true;
+  }
+
+  config.settings ||= {};
+  config.settings.manualCommands ||= {};
+
+  const settings = config.settings.manualCommands;
+  settings.chatRoleIds ||= [];
+  settings.replyRoleIds ||= [];
+  settings.adminsBypass ??= true;
+  settings.logMessageContent ??= true;
+
+  const args = content.trim().split(/\s+/);
+  const action = args[1]?.toLowerCase();
+
+  const save = () => saveConfig(config);
+
+  if (!action || action === "help") {
+    await message.reply({
+      embeds: [
+        new EmbedBuilder()
+          .setColor(0x5865f2)
+          .setTitle("Ysabelle Manual Command Configuration")
+          .setDescription(
+            [
+              "**Permissions**",
+              "`!manualcmd status` — View current settings",
+              "`!manualcmd chatrole @Role` — Allow a role to use `!chat`",
+              "`!manualcmd replyrole @Role` — Allow a role to use `!reply`",
+              "`!manualcmd clearchatroles` — Clear `!chat` role restrictions",
+              "`!manualcmd clearreplyroles` — Clear `!reply` role restrictions",
+              "",
+              "**Audit logging**",
+              "`!manualcmd audit #channel` — Set the audit channel",
+              "`!manualcmd audit off` — Disable audit logging",
+              "`!manualcmd content on` — Log command text",
+              "`!manualcmd content off` — Hide command text in audit logs",
+              "",
+              "**Administrator bypass**",
+              "`!manualcmd adminbypass on` — Administrators bypass role restrictions",
+              "`!manualcmd adminbypass off` — Administrators must also have an allowed role",
+            ].join("\n"),
+          ),
+      ],
+    });
+
+    return true;
+  }
+
+  if (action === "status") {
+    const chatRoles = settings.chatRoleIds.length
+      ? settings.chatRoleIds.map((id) => `<@&${id}>`).join(", ")
+      : "No roles configured (administrators only if bypass is enabled)";
+
+    const replyRoles = settings.replyRoleIds.length
+      ? settings.replyRoleIds.map((id) => `<@&${id}>`).join(", ")
+      : "No roles configured (administrators only if bypass is enabled)";
+
+    const auditChannel = settings.auditChannelId
+      ? `<#${settings.auditChannelId}>`
+      : "Disabled";
+
+    await message.reply({
+      embeds: [
+        new EmbedBuilder()
+          .setColor(0x5865f2)
+          .setTitle("Manual Command Settings")
+          .addFields(
+            { name: "!chat allowed roles", value: chatRoles },
+            { name: "!reply allowed roles", value: replyRoles },
+            { name: "Audit channel", value: auditChannel, inline: true },
+            {
+              name: "Log command text",
+              value: settings.logMessageContent ? "ON" : "OFF",
+              inline: true,
+            },
+            {
+              name: "Administrator bypass",
+              value: settings.adminsBypass ? "ON" : "OFF",
+              inline: true,
+            },
+          )
+          .setTimestamp(),
+      ],
+    });
+
+    return true;
+  }
+
+  if (action === "chatrole" || action === "replyrole") {
+    const role = message.mentions.roles.first();
+
+    if (!role) {
+      await message.reply(
+        `Mention a role. Example: \`!manualcmd ${action} @YourRole\``,
+      );
+      return true;
+    }
+
+    const key = action === "chatrole" ? "chatRoleIds" : "replyRoleIds";
+
+    if (settings[key].includes(role.id)) {
+      await message.reply(`${role} is already allowed to use this command.`);
+      return true;
+    }
+
+    settings[key].push(role.id);
+    save();
+
+    await message.reply(
+      `${role} can now use **${action === "chatrole" ? "!chat" : "!reply"}**.`,
+    );
+
+    return true;
+  }
+
+  if (action === "clearchatroles" || action === "clearreplyroles") {
+    const key = action === "clearchatroles" ? "chatRoleIds" : "replyRoleIds";
+
+    settings[key] = [];
+    save();
+
+    await message.reply(
+      `Cleared the configured role restrictions for **${action === "clearchatroles" ? "!chat" : "!reply"}**. ${
+        settings.adminsBypass
+          ? "Only administrators can use it until you add allowed roles."
+          : "No roles are allowed until you add them."
+      }`,
+    );
+
+    return true;
+  }
+
+  if (action === "audit") {
+    const target = args[2]?.toLowerCase();
+
+    if (target === "off") {
+      delete settings.auditChannelId;
+      save();
+
+      await message.reply("Manual command audit logging is now **OFF**.");
+      return true;
+    }
+
+    const channel =
+      message.mentions.channels.first() ||
+      message.guild.channels.cache.get(args[2]?.replace(/[<#>]/g, ""));
+
+    if (!channel || !channel.isTextBased() || !channel.guild) {
+      await message.reply(
+        "Mention a text channel in this server. Example: `!manualcmd audit #staff-logs`, or use `!manualcmd audit off`.",
+      );
+      return true;
+    }
+
+    settings.auditChannelId = channel.id;
+    save();
+
+    await message.reply(
+      `Manual command audit logs will now be sent to ${channel}.`,
+    );
+
+    return true;
+  }
+
+  if (action === "content") {
+    const value = args[2]?.toLowerCase();
+
+    if (!["on", "off"].includes(value)) {
+      await message.reply(
+        "Use `!manualcmd content on` or `!manualcmd content off`.",
+      );
+      return true;
+    }
+
+    settings.logMessageContent = value === "on";
+    save();
+
+    await message.reply(
+      `Logging command text is now **${value.toUpperCase()}**.`,
+    );
+
+    return true;
+  }
+
+  if (action === "adminbypass") {
+    const value = args[2]?.toLowerCase();
+
+    if (!["on", "off"].includes(value)) {
+      await message.reply(
+        "Use `!manualcmd adminbypass on` or `!manualcmd adminbypass off`.",
+      );
+      return true;
+    }
+
+    settings.adminsBypass = value === "on";
+    save();
+
+    await message.reply(
+      `Administrator bypass is now **${value.toUpperCase()}**.`,
+    );
+
+    return true;
+  }
+
+  await message.reply(
+    "Unknown option. Use `!manualcmd help` to see available commands.",
+  );
+
+  return true;
+}
+
+async function handleManualCommand(message, client, content) {
+  const isChat = /^!chat(?:\s|$)/i.test(content);
+  const isReply = /^!reply(?:\s|$)/i.test(content);
+
+  if (!isChat && !isReply) {
+    return false;
+  }
+
+  const commandName = isChat ? "!chat" : "!reply";
+
+  let config;
+
+  try {
+    config = loadConfig();
+  } catch (error) {
+    console.error("[Ysabelle Audit] Failed to load configuration:", error);
+
+    await message
+      .reply(
+        "I couldn't load my command configuration. Please try again later.",
+      )
+      .catch(() => {});
+
+    return true;
+  }
+
+  // Capture details before deleting the command message.
+  const originalContent = content;
+
+  const originalRoles =
+    message.member?.roles.cache
+      .filter((role) => role.id !== message.guild.id)
+      .map((role) => `${role.name} (${role.id})`)
+      .join(", ") || "No roles found";
+
+  if (!canUseManualCommand(message, config, commandName)) {
+    await logManualCommandAudit({
+      message,
+      client,
+      commandName,
+      status: "DENIED",
+      details: "User does not have an allowed role.",
+      config,
+      originalContent,
+      originalRoles,
+    });
+
+    await message
+      .reply("You don't have permission to use this command.")
+      .catch(() => {});
+
+    return true;
+  }
+
+  const commandText = isChat
+    ? content.replace(/^!chat\b/i, "").trim()
+    : content.replace(/^!reply\b/i, "").trim();
+
+  if (!commandText) {
+    await logManualCommandAudit({
+      message,
+      client,
+      commandName,
+      status: "FAILED",
+      details: "No message text provided.",
+      config,
+      originalContent,
+      originalRoles,
+    });
+
+    await message
+      .reply(
+        isChat
+          ? "Usage: `!chat your message here`"
+          : "Reply to a message, then type `!reply your message here`.",
+      )
+      .catch(() => {});
+
+    return true;
+  }
+
+  let targetMessage = null;
+
+  if (isReply) {
+    if (!message.reference?.messageId) {
+      await logManualCommandAudit({
+        message,
+        client,
+        commandName,
+        status: "FAILED",
+        details: "No original message was selected.",
+        config,
+        originalContent,
+        originalRoles,
+      });
+
+      await message
+        .reply(
+          "Reply to the message you want to respond to, then type `!reply your message here`.",
+        )
+        .catch(() => {});
+
+      return true;
+    }
+
+    try {
+      targetMessage = await message.channel.messages.fetch(
+        message.reference.messageId,
+      );
+    } catch (error) {
+      await logManualCommandAudit({
+        message,
+        client,
+        commandName,
+        status: "FAILED",
+        details: "Could not fetch the original message.",
+        config,
+        originalContent,
+        originalRoles,
+      });
+
+      await message
+        .reply(
+          "I couldn't find that message. Check my permissions and try again.",
+        )
+        .catch(() => {});
+
+      return true;
+    }
+  }
+
+  try {
+    // Send successfully before deleting the command.
+    if (isChat) {
+      await message.channel.send({
+        content: commandText,
+        allowedMentions: { parse: [] },
+      });
+    } else {
+      await targetMessage.reply({
+        content: commandText,
+        allowedMentions: { parse: [] },
+      });
+    }
+
+    // If deletion fails, the sent message remains posted.
+    await message.delete();
+
+    await logManualCommandAudit({
+      message,
+      client,
+      commandName,
+      status: "SUCCESS",
+      details: isChat
+        ? "Message posted normally in the channel."
+        : "Message posted as a reply to the selected message.",
+      targetMessage,
+      config,
+      originalContent,
+      originalRoles,
+    });
+  } catch (error) {
+    console.error(`[Ysabelle ${commandName}]`, error.message || error);
+
+    await logManualCommandAudit({
+      message,
+      client,
+      commandName,
+      status: "FAILED",
+      details: error.message || "Unknown error.",
+      targetMessage,
+      config,
+      originalContent,
+      originalRoles,
+    });
+
+    await message.channel
+      .send(
+        "I couldn't complete that command. Check my permissions and try again.",
+      )
+      .catch(() => {});
+  }
+
+  return true;
+}
+
+/* =========================================================
+   EVENT REGISTRATION
+   Prevents duplicate registration on the same client.
+   ========================================================= */
+
 function registerAutoReply(client) {
   if (registeredClients.has(client)) {
     console.warn(
-      "[Ysabelle AutoReply] Listener already registered for this client; skipping duplicate.",
+      "[Ysabelle AutoReply] Listener already registered; skipping duplicate.",
     );
     return;
   }
@@ -1006,84 +1588,35 @@ function registerAutoReply(client) {
   registeredClients.add(client);
 
   client.on(Events.MessageCreate, async (message) => {
-    if (message.author.bot || !message.guild) return;
+    if (message.author.bot || !message.guild || message.webhookId) {
+      return;
+    }
 
     const content = message.content.trim();
 
-    // !chat: Delete the command and send the text as a normal message.
-    if (/^!chat(?:\s|$)/i.test(content)) {
-      const chatMessage = content.slice(5).trim();
+    if (!content) return;
 
-      if (!chatMessage) {
-        await message.reply("Usage: `!chat your message here`").catch(() => {});
-        return;
-      }
+    // Manual commands bypass the AI handler.
+    // Configuration commands must be handled before !chat and !reply.
+    const configHandled = await handleManualConfigCommand(
+      message,
+      client,
+      content,
+    );
 
-      try {
-        await message.delete();
+    if (configHandled) return;
 
-        await message.channel.send({
-          content: chatMessage,
-          allowedMentions: { parse: [] },
-        });
-      } catch (error) {
-        console.error("[Ysabelle Chat]", error.message || error);
-      }
+    // Manual message commands bypass the AI handler.
+    const handled = await handleManualCommand(message, client, content);
 
-      return;
-    }
+    if (handled) return;
 
-    // !reply: Delete the command and reply to the selected message.
-    if (/^!reply(?:\s|$)/i.test(content)) {
-      const replyContent = content.replace(/^!reply\b/i, "").trim();
-
-      if (!replyContent) {
-        await message
-          .reply(
-            "Usage: Reply to a message and type `!reply your message here`.",
-          )
-          .catch(() => {});
-        return;
-      }
-
-      if (!message.reference?.messageId) {
-        await message
-          .reply(
-            "Reply to the message you want to respond to, then type `!reply your message here`.",
-          )
-          .catch(() => {});
-        return;
-      }
-
-      try {
-        const targetMessage = await message.channel.messages.fetch(
-          message.reference.messageId,
-        );
-
-        // Delete the command before sending the actual reply.
-        await message.delete();
-
-        await targetMessage.reply({
-          content: replyContent,
-          allowedMentions: { parse: [] },
-        });
-      } catch (error) {
-        console.error("[Ysabelle Reply]", error.message || error);
-
-        await message.channel
-          .send(
-            "I couldn't send the reply. Check my permissions and make sure the original message is still available.",
-          )
-          .catch(() => {});
-      }
-
-      return;
-    }
-
-    // Existing AI and automatic-reply handling remains unchanged.
-    handleMessage(message, client).catch((error) => {
+    // All other messages continue through the existing AI handler.
+    try {
+      await handleMessage(message, client);
+    } catch (error) {
       console.error("[Ysabelle AutoReply]", error);
-    });
+    }
   });
 
   console.log("[Ysabelle Chat] Manual message reposting loaded.");

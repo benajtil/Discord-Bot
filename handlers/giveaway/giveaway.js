@@ -1117,17 +1117,25 @@ function createGiveawayModule(client, db, prefix = "!") {
         const today = getManilaDayKey(now);
         const todayCount = counts.get(today) || 0;
 
-        let completedDays = 0;
-        let day = today;
+        // Count completed days before today, starting from yesterday.
+        // Today's progress is displayed separately and resets at Manila midnight.
+        let completedPreviousDays = 0;
+        let day = previousDayKey(today);
 
         for (let offset = 0; offset < daysRequired; offset++) {
           if ((counts.get(day) || 0) >= required) {
-            completedDays++;
+            completedPreviousDays++;
             day = previousDayKey(day);
           } else {
             break;
           }
         }
+
+        // Include today only when today's message target is complete.
+        const completedDays = Math.min(
+          daysRequired,
+          completedPreviousDays + (todayCount >= required ? 1 : 0),
+        );
 
         lines.push(
           `${todayCount >= required ? "✅" : "⬜"} **Today's Messages**\n` +
@@ -2241,13 +2249,16 @@ function createGiveawayModule(client, db, prefix = "!") {
 
       activity.messages.push(timestamp);
 
+      const now = Date.now();
+
       activity.messages = activity.messages
         .map(Number)
         .filter(
           (time) =>
             Number.isFinite(time) &&
             time > 0 &&
-            time >= timestamp - MAX_ACTIVITY_PERIOD,
+            time <= now &&
+            time >= now - MAX_ACTIVITY_PERIOD,
         );
 
       await db.set(key, activity);

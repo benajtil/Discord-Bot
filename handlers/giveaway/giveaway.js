@@ -528,6 +528,8 @@ function makeGiveawayEmbed(giveaway, settings, activitySettings) {
   const endTime = Number(giveaway.endsAt);
   const validEndTime = Number.isFinite(endTime) && endTime > 0;
   const ended = giveaway.status === "ended";
+  const cancelled = giveaway.status === "cancelled";
+  const inactive = ended || cancelled;
   const requirements = [];
 
   if (giveaway.requiredRoleId) {
@@ -576,23 +578,26 @@ function makeGiveawayEmbed(giveaway, settings, activitySettings) {
 
   const winners = Array.isArray(giveaway.winners) ? giveaway.winners : [];
 
-  const winnerText = ended
-    ? giveaway.endedWithoutWinner
-      ? "Not selected"
-      : winners.length
-        ? winners.map((id) => `<@${id}>`).join(", ")
-        : "No eligible winners"
-    : `${Number(giveaway.winnerCount) || 1} winner(s)`;
+  const winnerText = cancelled
+    ? "Cancelled"
+    : ended
+      ? giveaway.endedWithoutWinner
+        ? "Not selected"
+        : winners.length
+          ? winners.map((id) => `<@${id}>`).join(", ")
+          : "No eligible winners"
+      : `${Number(giveaway.winnerCount) || 1} winner(s)`;
 
-  const timeText = ended
-    ? "Ended"
-    : validEndTime
-      ? `<t:${Math.floor(endTime / 1000)}:R> ` +
-        `(<t:${Math.floor(endTime / 1000)}:f>)`
-      : "Not configured";
+  const timeText = cancelled
+    ? "Cancelled"
+    : ended
+      ? "Ended"
+      : validEndTime
+        ? `<t:${Math.floor(endTime / 1000)}:R> (<t:${Math.floor(endTime / 1000)}:f>)`
+        : "Not configured";
 
   const embed = new EmbedBuilder()
-    .setColor(ended ? 0x747f8d : COLOR)
+    .setColor(cancelled ? 0xef4444 : ended ? 0x747f8d : COLOR)
     .setAuthor({ name: "KATOR6 • GIVEAWAY" })
     .setTitle(`🎁 ${giveaway.prize || "Giveaway"}`)
     .setDescription(
@@ -611,9 +616,11 @@ function makeGiveawayEmbed(giveaway, settings, activitySettings) {
         }`,
         "",
         "━━━━━━━━━━━━━━━━━━",
-        ended
-          ? "This giveaway has ended."
-          : "Press **Enter Giveaway** below to check your eligibility.",
+        cancelled
+          ? "This giveaway has been cancelled."
+          : ended
+            ? "This giveaway has ended."
+            : "Press **Enter Giveaway** below to check your eligibility.",
       ].join("\n"),
     )
     .setFooter({ text: "Kator6 • Good luck!" });
@@ -772,12 +779,12 @@ async function refreshGiveawayMessage(client, db, guildId) {
   const settings = await getSettings(db, guildId);
   const activitySettings = await getActivitySettings(db, guildId);
 
-  const ended = giveaway.status === "ended";
+  const inactive = giveaway.status !== "active";
 
   await message
     .edit({
       embeds: [makeGiveawayEmbed(giveaway, settings, activitySettings)],
-      components: makeEntryButtons(guildId, ended),
+      components: makeEntryButtons(guildId, inactive),
     })
     .catch((error) => console.error("[Giveaway refresh]", error));
 }
@@ -950,7 +957,14 @@ function buildGiveawaySlashCommand() {
     .setName("giveaway")
     .setDescription("Create and manage giveaways")
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
-
+    .addSubcommand((sub) =>
+      sub
+        .setName("publish")
+        .setDescription("Publish a draft or restore a deleted giveaway embed"),
+    )
+    .addSubcommand((sub) =>
+      sub.setName("cancel").setDescription("Cancel the current giveaway"),
+    )
     .addSubcommand((sub) =>
       sub
         .setName("create")
@@ -1298,7 +1312,80 @@ function createGiveawayModule(client, db, prefix = "!") {
 
         return true;
       }
+      if (sub === "publish") {
+        if (!["draft", "active"].includes(giveaway.status)) {
+          await replyPrivately(
+            interaction,
+            "Only a draft or active giveaway can be published or restored.",
+          );
+          return true;
+        }
 
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+        try {
+          // If active, check whether the original message still exists.
+          if (giveaway.status === "active" && giveaway.messageId) {
+            const channel = await guild.channels
+              .fetch(giveaway.channelId)
+              .catch(() => null);
+
+            const existingMessage = channel?.isTextBased()
+              ? await channel.messages
+                  .fetch(giveaway.messageId)
+                  .catch(() => null)
+              : null;
+
+            if (existingMessage) {
+              await interaction.editReply(
+                `The giveaway embed still exists in <#${giveaway.channelId}>.`,
+              );
+              return true;
+            }
+          }
+
+          // Send a new embed while preserving existing giveaway data.
+          const message = await publishGiveaway(client, db, guild, giveaway);
+
+          await interaction.editReply(
+            `✅ Giveaway published or restored in <#${giveaway.channelId}>.\n` +
+              `Message: ${message.url}\n` +
+              `Existing entries preserved: ${(giveaway.entries || []).length}`,
+          );
+        } catch (error) {
+          console.error("[Giveaway slash publish]", error);
+
+          await interaction.editReply(
+            `❌ Could not publish the giveaway: ${error.message}`,
+          );
+        }
+
+        return true;
+      }
+
+      if (sub === "cancel") {
+        if (!["draft", "active"].includes(giveaway.status)) {
+          await replyPrivately(
+            interaction,
+            "There is no draft or active giveaway to cancel.",
+          );
+          return true;
+        }
+
+        giveaway.status = "cancelled";
+        giveaway.cancelledAt = Date.now();
+
+        await saveGiveaway(db, guild.id, giveaway);
+
+        await refreshGiveawayMessage(client, db, guild.id);
+
+        await replyPrivately(
+          interaction,
+          `❌ The giveaway for **${giveaway.prize}** has been cancelled.`,
+        );
+
+        return true;
+      }
       const current = await getGiveaway(db, guild.id);
 
       if (current?.status === "active" || current?.status === "draft") {
@@ -1439,7 +1526,74 @@ function createGiveawayModule(client, db, prefix = "!") {
 
       return true;
     }
+    if (group === "publish") {
+      const giveaway = await getGiveaway(db, message.guild.id);
 
+      if (!giveaway || !["draft", "active"].includes(giveaway.status)) {
+        await message.reply(
+          "There is no draft or active giveaway to publish or restore.",
+        );
+        return true;
+      }
+
+      try {
+        if (giveaway.status === "active" && giveaway.messageId) {
+          const channel = await message.guild.channels
+            .fetch(giveaway.channelId)
+            .catch(() => null);
+
+          const existingMessage = channel?.isTextBased()
+            ? await channel.messages.fetch(giveaway.messageId).catch(() => null)
+            : null;
+
+          if (existingMessage) {
+            await message.reply(
+              `The giveaway embed still exists: ${existingMessage.url}`,
+            );
+            return true;
+          }
+        }
+
+        const published = await publishGiveaway(
+          client,
+          db,
+          message.guild,
+          giveaway,
+        );
+
+        await message.reply(
+          `✅ Giveaway published or restored: ${published.url}\n` +
+            `Existing entries preserved: ${(giveaway.entries || []).length}`,
+        );
+      } catch (error) {
+        console.error("[Giveaway prefix publish]", error);
+        await message.reply(
+          `❌ Could not publish the giveaway: ${error.message}`,
+        );
+      }
+
+      return true;
+    }
+
+    if (group === "cancel") {
+      const giveaway = await getGiveaway(db, message.guild.id);
+
+      if (!giveaway || !["draft", "active"].includes(giveaway.status)) {
+        await message.reply("There is no draft or active giveaway to cancel.");
+        return true;
+      }
+
+      giveaway.status = "cancelled";
+      giveaway.cancelledAt = Date.now();
+
+      await saveGiveaway(db, message.guild.id, giveaway);
+      await refreshGiveawayMessage(client, db, message.guild.id);
+
+      await message.reply(
+        `❌ The giveaway for **${giveaway.prize}** has been cancelled.`,
+      );
+      return true;
+    }
     /* REQUIRED ROLE */
 
     if (group === "role") {
@@ -1853,6 +2007,8 @@ function createGiveawayModule(client, db, prefix = "!") {
     await message.reply(
       [
         "**Giveaway Commands**",
+        `\`${prefix}giveaway publish\` — Publish or restore a deleted giveaway embed`,
+        `\`${prefix}giveaway cancel\` — Cancel a draft or active giveaway`,
         `\`${prefix}giveaway activity\` — Activity settings`,
         `\`${prefix}giveaway keyword\` — Keyword progress settings`,
         `\`${prefix}giveaway role\` — Required role settings`,

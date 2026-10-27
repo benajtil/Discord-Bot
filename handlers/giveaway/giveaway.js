@@ -7,7 +7,6 @@ const {
 
 const DAY = 24 * 60 * 60 * 1000;
 const ENTRY_EMOJI = "🎉";
-const EMBED_COLOR = 0x8b5cf6;
 
 const giveawayKey = (guildId) => `giveaway:${guildId}:current`;
 const settingsKey = (guildId) => `giveaway:${guildId}:keywordSettings`;
@@ -15,15 +14,17 @@ const streakKey = (guildId, userId) =>
   `giveaway:${guildId}:keywordStreak:${userId}`;
 
 function localDayKey(timestamp = Date.now()) {
-  const d = new Date(timestamp);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const date = new Date(timestamp);
+
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
 function previousDayKey(dayKey) {
   const [year, month, day] = dayKey.split("-").map(Number);
-  const d = new Date(year, month - 1, day);
-  d.setDate(d.getDate() - 1);
-  return localDayKey(d.getTime());
+  const date = new Date(year, month - 1, day);
+
+  date.setDate(date.getDate() - 1);
+  return localDayKey(date.getTime());
 }
 
 function parseDuration(value) {
@@ -49,6 +50,7 @@ function parseDuration(value) {
   };
 
   if (!amount || amount > 1000) return null;
+
   return amount * multipliers[match[2]];
 }
 
@@ -61,16 +63,11 @@ function normalizeKeyword(text) {
 
 function containsGiveawayKeyword(messageContent, keyword) {
   const normalizedKeyword = normalizeKeyword(keyword);
+
   return (
     normalizedKeyword.length > 0 &&
     normalizeKeyword(messageContent).includes(normalizedKeyword)
   );
-}
-
-function durationText(ms) {
-  if (ms >= DAY) return `${Math.floor(ms / DAY)} day(s)`;
-  if (ms >= 3_600_000) return `${Math.floor(ms / 3_600_000)} hour(s)`;
-  return `${Math.max(1, Math.floor(ms / 60_000))} minute(s)`;
 }
 
 async function getSettings(db, guildId) {
@@ -97,20 +94,28 @@ async function saveGiveaway(db, guildId, giveaway) {
 }
 
 async function getStreak(db, guildId, userId) {
-  return (
-    (await db.get(streakKey(guildId, userId))) || {
+  const streak = await db.get(streakKey(guildId, userId));
+
+  if (!streak || typeof streak !== "object") {
+    return {
       lastDay: null,
       count: 0,
       creditedDays: [],
-    }
-  );
+    };
+  }
+
+  return {
+    lastDay: streak.lastDay || null,
+    count: Number(streak.count) || 0,
+    creditedDays: Array.isArray(streak.creditedDays) ? streak.creditedDays : [],
+  };
 }
 
 async function creditKeywordMessage(db, guildId, userId) {
   const today = localDayKey();
   const streak = await getStreak(db, guildId, userId);
 
-  // Only one credit is allowed per user per calendar day.
+  // Only one credit per user per calendar day.
   if (streak.lastDay === today) {
     return {
       credited: false,
@@ -123,10 +128,14 @@ async function creditKeywordMessage(db, guildId, userId) {
     streak.lastDay === previousDayKey(today) ? streak.count + 1 : 1;
 
   streak.lastDay = today;
-  streak.creditedDays = [...(streak.creditedDays || []), today].slice(-60);
+  streak.creditedDays = [...streak.creditedDays, today].slice(-60);
 
   await db.set(streakKey(guildId, userId), streak);
-  return { credited: true, streak: streak.count };
+
+  return {
+    credited: true,
+    streak: streak.count,
+  };
 }
 
 async function isKeywordEligible(db, guildId, userId, settings) {
@@ -135,109 +144,84 @@ async function isKeywordEligible(db, guildId, userId, settings) {
 
   const streak = await getStreak(db, guildId, userId);
 
-  // Require today's credit and the configured consecutive-day count.
   return (
     streak.lastDay === localDayKey() &&
     streak.count >= Number(settings.requiredDays || 3)
   );
 }
 
-function makeGiveawayEmbed(giveaway, guild, settings = {}) {
-  const ended = giveaway.status !== "active";
-  const endTimestamp = Math.floor(giveaway.endsAt / 1000);
-  const entryCount = (giveaway.entries || []).length;
+// Minimalist giveaway embed.
+function makeGiveawayEmbed(giveaway, guild, settings) {
+  const endTime = Number(giveaway.endsAt);
+  const hasValidEndTime = Number.isFinite(endTime) && endTime > 0;
 
-  const embed = new EmbedBuilder()
-    .setColor(ended ? 0x64748b : EMBED_COLOR)
-    .setAuthor({
-      name: `${guild.name} • COMMUNITY GIVEAWAY`,
-      iconURL: guild.iconURL({ size: 128 }) || undefined,
-    })
-    .setTitle(`${ended ? "🏁" : "🎁"} ${giveaway.prize || "Mystery Prize"}`)
-    .setDescription(
-      ended
-        ? "This giveaway has ended. Thank you for participating!"
-        : [
-            "### ✨ Your next win could start here",
-            "React with 🎉 below to enter.",
-            "",
-            `**🏆 Winners:** ${giveaway.winnerCount}`,
-            `**⏳ Time remaining:** <t:${endTimestamp}:R>`,
-          ].join("\n"),
-    )
-    .addFields(
-      {
-        name: "👑 HOST",
-        value: `<@${giveaway.hostId}>`,
-        inline: true,
-      },
-      {
-        name: "🎟️ ENTRIES",
-        value: String(entryCount),
-        inline: true,
-      },
-      {
-        name: "📌 STATUS",
-        value: ended ? "Ended" : "Accepting entries",
-        inline: true,
-      },
-      {
-        name: "📍 CHANNEL",
-        value: `<#${giveaway.channelId}>`,
-        inline: true,
-      },
-      {
-        name: "🗓️ ENDS",
-        value: `<t:${endTimestamp}:F>`,
-        inline: true,
-      },
-      {
-        name: "🏅 WINNERS",
-        value: (giveaway.winners || []).length
-          ? giveaway.winners.map((id) => `<@${id}>`).join(", ")
-          : `${giveaway.winnerCount} winner(s) will be selected`,
-        inline: true,
-      },
-    );
+  const endTimestamp = hasValidEndTime ? Math.floor(endTime / 1000) : null;
 
+  const isEnded = giveaway.status === "ended";
   const requirements = [];
 
   if (giveaway.requiredRoleId) {
-    requirements.push(`• Have the <@&${giveaway.requiredRoleId}> role`);
+    requirements.push(`Role: <@&${giveaway.requiredRoleId}>`);
   }
 
   if (Number(giveaway.requiredMessages) > 0) {
     requirements.push(
-      `• Send ${giveaway.requiredMessages} messages within ${giveaway.messageDays || 1} day(s)`,
+      `${giveaway.requiredMessages} messages within ${giveaway.messageDays || 1} day(s)`,
     );
   }
 
   if (Number(giveaway.requiredActiveDays) > 0) {
     requirements.push(
-      `• Be active on ${giveaway.requiredActiveDays} day(s) within ${giveaway.activeDaysWithin || 7} day(s)`,
+      `${giveaway.requiredActiveDays} active day(s) within ${giveaway.activeDaysWithin || 7} day(s)`,
     );
   }
 
-  if (settings.enabled) {
+  if (settings?.enabled) {
     requirements.push(
-      `• Send **${settings.keyword}** for ${settings.requiredDays} consecutive day(s)`,
-      `• Mention <@${settings.targetUserId}> or reply to their message`,
-      "• Only one keyword credit per day",
+      `Send "${settings.keyword}" for ${settings.requiredDays || 3} consecutive days`,
     );
+
+    if (settings.targetUserId) {
+      requirements.push(`Mention or reply to <@${settings.targetUserId}>`);
+    } else {
+      requirements.push("Keyword target has not been configured");
+    }
   }
 
-  embed.addFields({
-    name: "🔐 HOW TO QUALIFY",
-    value: requirements.length
-      ? requirements.join("\n")
-      : "No extra requirements. Everyone can join!",
-    inline: false,
-  });
+  const winners = Array.isArray(giveaway.winners) ? giveaway.winners : [];
 
-  embed.setFooter({
-    text: "Kator6 • Fair entries • Powered by Ysabelle",
-  });
-  embed.setTimestamp(giveaway.createdAt || Date.now());
+  const winnerText = isEnded
+    ? winners.length
+      ? winners.map((id) => `<@${id}>`).join(", ")
+      : "No eligible winners"
+    : `${Number(giveaway.winnerCount) || 1} winner(s) to be selected`;
+
+  const timeText = isEnded
+    ? "Ended"
+    : endTimestamp
+      ? `<t:${endTimestamp}:R>`
+      : "Not configured";
+
+  const description = [
+    `**Host**\n<@${giveaway.hostId}>`,
+    `**Winner(s)**\n${winnerText}`,
+    `**Time remaining**\n${timeText}`,
+    `**Entries**\n${(giveaway.entries || []).length}`,
+    `**Requirements**\n${requirements.length ? requirements.join("\n") : "None"}`,
+  ].join("\n\n");
+
+  const embed = new EmbedBuilder()
+    .setColor(0x2b2d31)
+    .setTitle(giveaway.prize || "Giveaway")
+    .setDescription(description)
+    .setFooter({
+      text: "Kator6 Giveaway",
+    });
+
+  // Only set a timestamp when it is valid.
+  if (hasValidEndTime) {
+    embed.setTimestamp(new Date(endTime));
+  }
 
   return embed;
 }
@@ -246,7 +230,10 @@ async function checkEntryRequirements(db, guild, giveaway, userId) {
   const member = await guild.members.fetch(userId).catch(() => null);
 
   if (!member || member.user.bot) {
-    return { ok: false, reason: "Bots cannot enter this giveaway." };
+    return {
+      ok: false,
+      reason: "Bots cannot enter this giveaway.",
+    };
   }
 
   if (
@@ -260,14 +247,16 @@ async function checkEntryRequirements(db, guild, giveaway, userId) {
   }
 
   const activityKey = `giveawayActivity:${guild.id}:${userId}`;
-  const activity = await db.get(activityKey);
-  const messages = activity?.messages || [];
+
+  const activity = (await db.get(activityKey)) || {};
+  const messages = Array.isArray(activity.messages) ? activity.messages : [];
 
   if (Number(giveaway.requiredMessages) > 0) {
     const cutoff = Date.now() - Number(giveaway.messageDays || 1) * DAY;
-    const count = messages.filter((time) => time >= cutoff).length;
 
-    if (count < giveaway.requiredMessages) {
+    const count = messages.filter((time) => Number(time) >= cutoff).length;
+
+    if (count < Number(giveaway.requiredMessages)) {
       return {
         ok: false,
         reason: `You need ${giveaway.requiredMessages} messages within ${giveaway.messageDays || 1} day(s).`,
@@ -277,13 +266,14 @@ async function checkEntryRequirements(db, guild, giveaway, userId) {
 
   if (Number(giveaway.requiredActiveDays) > 0) {
     const cutoff = Date.now() - Number(giveaway.activeDaysWithin || 7) * DAY;
+
     const activeDays = new Set(
       messages
-        .filter((time) => time >= cutoff)
-        .map((time) => localDayKey(time)),
+        .filter((time) => Number(time) >= cutoff)
+        .map((time) => localDayKey(Number(time))),
     ).size;
 
-    if (activeDays < giveaway.requiredActiveDays) {
+    if (activeDays < Number(giveaway.requiredActiveDays)) {
       return {
         ok: false,
         reason: `You need ${giveaway.requiredActiveDays} active day(s) within ${giveaway.activeDaysWithin || 7} day(s).`,
@@ -295,17 +285,23 @@ async function checkEntryRequirements(db, guild, giveaway, userId) {
 
   if (!(await isKeywordEligible(db, guild.id, userId, settings))) {
     const streak = await getStreak(db, guild.id, userId);
+
     return {
       ok: false,
-      reason: `You need ${settings.requiredDays} consecutive days of "${settings.keyword}" and must earn today's credit. Current streak: ${streak.count || 0}.`,
+      reason: `You need ${settings.requiredDays || 3} consecutive days of "${settings.keyword}" and must earn today's credit. Current streak: ${streak.count}.`,
     };
   }
 
-  return { ok: true };
+  return {
+    ok: true,
+  };
 }
 
 async function replyPrivately(interaction, content) {
-  const payload = { content, flags: MessageFlags.Ephemeral };
+  const payload = {
+    content,
+    flags: MessageFlags.Ephemeral,
+  };
 
   if (interaction.deferred || interaction.replied) {
     return interaction.followUp(payload);
@@ -316,6 +312,7 @@ async function replyPrivately(interaction, content) {
 
 async function refreshGiveawayMessage(client, db, guildId) {
   const giveaway = await getGiveaway(db, guildId);
+
   if (!giveaway?.messageId) return;
 
   const guild = await client.guilds.fetch(guildId).catch(() => null);
@@ -324,11 +321,13 @@ async function refreshGiveawayMessage(client, db, guildId) {
   const channel = await guild.channels
     .fetch(giveaway.channelId)
     .catch(() => null);
+
   if (!channel?.isTextBased()) return;
 
   const message = await channel.messages
     .fetch(giveaway.messageId)
     .catch(() => null);
+
   if (!message) return;
 
   const settings = await getSettings(db, guildId);
@@ -337,7 +336,9 @@ async function refreshGiveawayMessage(client, db, guildId) {
     .edit({
       embeds: [makeGiveawayEmbed(giveaway, guild, settings)],
     })
-    .catch(() => {});
+    .catch((error) => {
+      console.error("[Giveaway message refresh]", error);
+    });
 }
 
 async function publishGiveaway(client, db, guild, giveaway) {
@@ -352,14 +353,21 @@ async function publishGiveaway(client, db, guild, giveaway) {
   }
 
   const settings = await getSettings(db, guild.id);
+
   const message = await channel.send({
     embeds: [makeGiveawayEmbed(giveaway, guild, settings)],
   });
 
   giveaway.messageId = message.id;
   giveaway.status = "active";
+
   await saveGiveaway(db, guild.id, giveaway);
-  await message.react(ENTRY_EMOJI);
+
+  try {
+    await message.react(ENTRY_EMOJI);
+  } catch (error) {
+    console.error("[Giveaway reaction setup]", error);
+  }
 
   return message;
 }
@@ -368,31 +376,50 @@ async function endGiveaway(client, db, guildId, reroll = false) {
   const giveaway = await getGiveaway(db, guildId);
 
   if (!giveaway || (giveaway.status !== "active" && !reroll)) {
-    return { ok: false, reason: "There is no active giveaway to end." };
+    return {
+      ok: false,
+      reason: "There is no active giveaway to end.",
+    };
+  }
+
+  if (reroll && giveaway.status !== "ended") {
+    return {
+      ok: false,
+      reason: "End the giveaway before rerolling.",
+    };
   }
 
   const guild = await client.guilds.fetch(guildId).catch(() => null);
-  if (!guild) return { ok: false, reason: "Server not found." };
 
+  if (!guild) {
+    return {
+      ok: false,
+      reason: "Server not found.",
+    };
+  }
+
+  const previousWinners = giveaway.winners || [];
   const candidates = [];
 
   for (const userId of giveaway.entries || []) {
-    if ((giveaway.winners || []).includes(userId)) continue;
+    if (previousWinners.includes(userId)) continue;
 
     const check = await checkEntryRequirements(db, guild, giveaway, userId);
-    if (check.ok) candidates.push(userId);
+
+    if (check.ok) {
+      candidates.push(userId);
+    }
   }
 
   const selected = [];
+  const winnerCount = Math.max(1, Number(giveaway.winnerCount) || 1);
 
-  while (candidates.length && selected.length < giveaway.winnerCount) {
+  while (candidates.length && selected.length < winnerCount) {
     const index = Math.floor(Math.random() * candidates.length);
     selected.push(candidates.splice(index, 1)[0]);
   }
 
-  giveaway.winners = reroll
-    ? [...(giveaway.winners || []), ...selected]
-    : selected;
+  giveaway.winners = reroll ? [...previousWinners, ...selected] : selected;
 
   if (!reroll) {
     giveaway.status = "ended";
@@ -409,8 +436,12 @@ async function endGiveaway(client, db, guildId, reroll = false) {
   if (channel?.isTextBased() && selected.length) {
     await channel
       .send({
-        content: `🎉 Congratulations ${selected.map((id) => `<@${id}>`).join(", ")}! You won **${giveaway.prize}**!`,
-        allowedMentions: { users: selected },
+        content:
+          `🎉 Congratulations ${selected.map((id) => `<@${id}>`).join(", ")}! ` +
+          `You won **${giveaway.prize}**!`,
+        allowedMentions: {
+          users: selected,
+        },
       })
       .catch(() => {});
   } else if (channel?.isTextBased()) {
@@ -419,7 +450,10 @@ async function endGiveaway(client, db, guildId, reroll = false) {
       .catch(() => {});
   }
 
-  return { ok: true, winners: selected };
+  return {
+    ok: true,
+    winners: selected,
+  };
 }
 
 function buildGiveawaySlashCommand() {
@@ -431,31 +465,33 @@ function buildGiveawaySlashCommand() {
       sub
         .setName("create")
         .setDescription("Create a giveaway")
-        .addStringOption((o) =>
-          o.setName("prize").setDescription("Prize").setRequired(true),
+        .addStringOption((option) =>
+          option.setName("prize").setDescription("Prize").setRequired(true),
         )
-        .addChannelOption((o) =>
-          o
+        .addChannelOption((option) =>
+          option
             .setName("channel")
             .setDescription("Posting channel")
             .setRequired(true),
         )
-        .addStringOption((o) =>
-          o
+        .addStringOption((option) =>
+          option
             .setName("duration")
             .setDescription("Example: 30m, 2h, 3d")
             .setRequired(true),
         )
-        .addIntegerOption((o) =>
-          o
+        .addIntegerOption((option) =>
+          option
             .setName("winners")
             .setDescription("Number of winners")
             .setMinValue(1)
             .setMaxValue(20)
             .setRequired(true),
         )
-        .addRoleOption((o) =>
-          o.setName("required_role").setDescription("Role required to enter"),
+        .addRoleOption((option) =>
+          option
+            .setName("required_role")
+            .setDescription("Role required to enter"),
         ),
     )
     .addSubcommand((sub) =>
@@ -484,8 +520,9 @@ function createGiveawayModule(client, db, prefix = "!") {
     if (
       !interaction.isChatInputCommand() ||
       interaction.commandName !== "giveaway"
-    )
+    ) {
       return false;
+    }
 
     const sub = interaction.options.getSubcommand();
     const guild = interaction.guild;
@@ -506,6 +543,14 @@ function createGiveawayModule(client, db, prefix = "!") {
         await replyPrivately(
           interaction,
           "Invalid duration. Use `30m`, `2h`, `3d`, or `1w`.",
+        );
+        return true;
+      }
+
+      if (!channel?.isTextBased()) {
+        await replyPrivately(
+          interaction,
+          "Please select a text channel for the giveaway.",
         );
         return true;
       }
@@ -541,6 +586,7 @@ function createGiveawayModule(client, db, prefix = "!") {
 
       try {
         await publishGiveaway(client, db, guild, giveaway);
+
         await replyPrivately(
           interaction,
           `Giveaway published in <#${channel.id}>.`,
@@ -548,6 +594,7 @@ function createGiveawayModule(client, db, prefix = "!") {
       } catch (error) {
         giveaway.status = "draft";
         await saveGiveaway(db, guild.id, giveaway);
+
         await replyPrivately(
           interaction,
           `Could not publish: ${error.message}`,
@@ -567,13 +614,15 @@ function createGiveawayModule(client, db, prefix = "!") {
     if (sub === "status") {
       await replyPrivately(
         interaction,
-        `**${giveaway.prize}** — ${giveaway.status}\nEntries: ${(giveaway.entries || []).length}`,
+        `**${giveaway.prize}** — ${giveaway.status}\n` +
+          `Entries: ${(giveaway.entries || []).length}`,
       );
       return true;
     }
 
     if (sub === "end") {
       const result = await endGiveaway(client, db, guild.id);
+
       await replyPrivately(
         interaction,
         result.ok ? "Giveaway ended." : result.reason,
@@ -583,6 +632,7 @@ function createGiveawayModule(client, db, prefix = "!") {
 
     if (sub === "reroll") {
       const result = await endGiveaway(client, db, guild.id, true);
+
       await replyPrivately(
         interaction,
         result.ok ? "Reroll complete." : result.reason,
@@ -599,7 +649,9 @@ function createGiveawayModule(client, db, prefix = "!") {
     const command = `${prefix}giveaway`;
     const content = message.content.trim();
 
-    if (!content.toLowerCase().startsWith(command.toLowerCase())) return false;
+    if (!content.toLowerCase().startsWith(command.toLowerCase())) {
+      return false;
+    }
 
     const remainder = content.slice(command.length).trim();
     const args = remainder ? remainder.split(/\s+/) : [];
@@ -633,10 +685,12 @@ function createGiveawayModule(client, db, prefix = "!") {
 
         settings.keyword = keyword;
         settings.enabled = true;
+
         await saveSettings(db, message.guild.id, settings);
         await refreshGiveawayMessage(client, db, message.guild.id);
+
         await message.reply(
-          `✅ Keyword set to **${keyword}**. Capitalization and spacing variations are accepted.`,
+          `Keyword set to **${keyword}**. Capitalization and spacing variations are accepted.`,
         );
         return true;
       }
@@ -654,10 +708,12 @@ function createGiveawayModule(client, db, prefix = "!") {
 
         settings.targetUserId = userId;
         settings.enabled = true;
+
         await saveSettings(db, message.guild.id, settings);
         await refreshGiveawayMessage(client, db, message.guild.id);
+
         await message.reply(
-          `✅ Members must mention <@${userId}> or reply to their message.`,
+          `Members must mention <@${userId}> or reply to their message.`,
         );
         return true;
       }
@@ -674,10 +730,12 @@ function createGiveawayModule(client, db, prefix = "!") {
 
         settings.requiredDays = days;
         settings.enabled = true;
+
         await saveSettings(db, message.guild.id, settings);
         await refreshGiveawayMessage(client, db, message.guild.id);
+
         await message.reply(
-          `✅ Required streak set to **${days} consecutive days**.`,
+          `Required streak set to **${days} consecutive days**.`,
         );
         return true;
       }
@@ -695,9 +753,11 @@ function createGiveawayModule(client, db, prefix = "!") {
 
       if (action === "off") {
         settings.enabled = false;
+
         await saveSettings(db, message.guild.id, settings);
         await refreshGiveawayMessage(client, db, message.guild.id);
-        await message.reply("✅ Keyword requirement disabled.");
+
+        await message.reply("Keyword requirement disabled.");
         return true;
       }
 
@@ -714,12 +774,14 @@ function createGiveawayModule(client, db, prefix = "!") {
 
     if (group === "end") {
       const result = await endGiveaway(client, db, message.guild.id);
+
       await message.reply(result.ok ? "Giveaway ended." : result.reason);
       return true;
     }
 
     if (group === "status") {
       const giveaway = await getGiveaway(db, message.guild.id);
+
       await message.reply(
         giveaway
           ? `**${giveaway.prize}** — ${giveaway.status}\nEntries: ${(giveaway.entries || []).length}`
@@ -734,21 +796,29 @@ function createGiveawayModule(client, db, prefix = "!") {
         `\`${prefix}giveaway status\`\n` +
         `\`${prefix}giveaway end\``,
     );
+
     return true;
   }
 
-  // Keyword streak tracker and message activity tracker.
+  // Track message activity and keyword streaks.
   client.on("messageCreate", async (message) => {
     try {
       if (!message.guild || message.author.bot) return;
 
       const now = Date.now();
       const activityKey = `giveawayActivity:${message.guild.id}:${message.author.id}`;
-      const activity = (await db.get(activityKey)) || { messages: [] };
+
+      // Repair old or incomplete activity records before using them.
+      const activity = (await db.get(activityKey)) || {};
+
+      if (!Array.isArray(activity.messages)) {
+        activity.messages = [];
+      }
 
       activity.messages.push(now);
+
       activity.messages = activity.messages.filter(
-        (time) => time >= now - 30 * DAY,
+        (time) => Number(time) >= now - 30 * DAY,
       );
 
       await db.set(activityKey, activity);
@@ -757,8 +827,9 @@ function createGiveawayModule(client, db, prefix = "!") {
 
       if (!settings.enabled || !settings.targetUserId) return;
 
-      // Fixed bug: use settings.keyword, not the undefined giveaway.keyword.
-      if (!containsGiveawayKeyword(message.content, settings.keyword)) return;
+      if (!containsGiveawayKeyword(message.content, settings.keyword)) {
+        return;
+      }
 
       const mentionsTarget = message.mentions.users.has(settings.targetUserId);
 
@@ -782,10 +853,11 @@ function createGiveawayModule(client, db, prefix = "!") {
 
       if (result.credited) {
         await message.react("✅").catch(() => {});
+
         await message.author
           .send(
-            `🌤️ Your **${settings.keyword}** message was credited!\n` +
-              `Streak: **${result.streak}/${settings.requiredDays} days**.`,
+            `Your **${settings.keyword}** message was credited!\n` +
+              `Streak: **${result.streak}/${settings.requiredDays || 3} days**.`,
           )
           .catch(() => {});
       }
@@ -797,10 +869,14 @@ function createGiveawayModule(client, db, prefix = "!") {
   client.on("messageReactionAdd", async (reaction, user) => {
     try {
       if (user.bot) return;
+
       if (reaction.partial) await reaction.fetch();
-      if (reaction.message.partial) await reaction.message.fetch();
+      if (reaction.message.partial) {
+        await reaction.message.fetch();
+      }
 
       const guild = reaction.message.guild;
+
       if (!guild || reaction.emoji.name !== ENTRY_EMOJI) return;
 
       const giveaway = await getGiveaway(db, guild.id);
@@ -809,8 +885,9 @@ function createGiveawayModule(client, db, prefix = "!") {
         !giveaway ||
         giveaway.status !== "active" ||
         giveaway.messageId !== reaction.message.id
-      )
+      ) {
         return;
+      }
 
       const check = await checkEntryRequirements(db, guild, giveaway, user.id);
 
@@ -826,14 +903,16 @@ function createGiveawayModule(client, db, prefix = "!") {
               .send(`<@${user.id}> You cannot enter yet: ${check.reason}`)
               .catch(() => null);
 
-            if (warning)
+            if (warning) {
               setTimeout(() => warning.delete().catch(() => {}), 10_000);
+            }
           });
 
         return;
       }
 
       giveaway.entries = [...new Set([...(giveaway.entries || []), user.id])];
+
       await saveGiveaway(db, guild.id, giveaway);
       await refreshGiveawayMessage(client, db, guild.id);
     } catch (error) {
@@ -844,19 +923,26 @@ function createGiveawayModule(client, db, prefix = "!") {
   client.on("messageReactionRemove", async (reaction, user) => {
     try {
       if (user.bot) return;
+
       if (reaction.partial) await reaction.fetch();
-      if (reaction.message.partial) await reaction.message.fetch();
+      if (reaction.message.partial) {
+        await reaction.message.fetch();
+      }
 
       const guild = reaction.message.guild;
+
       if (!guild || reaction.emoji.name !== ENTRY_EMOJI) return;
 
       const giveaway = await getGiveaway(db, guild.id);
 
-      if (!giveaway || giveaway.messageId !== reaction.message.id) return;
+      if (!giveaway || giveaway.messageId !== reaction.message.id) {
+        return;
+      }
 
       giveaway.entries = (giveaway.entries || []).filter(
         (id) => id !== user.id,
       );
+
       await saveGiveaway(db, guild.id, giveaway);
       await refreshGiveawayMessage(client, db, guild.id);
     } catch (error) {
@@ -869,7 +955,10 @@ function createGiveawayModule(client, db, prefix = "!") {
       for (const [guildId] of client.guilds.cache) {
         const giveaway = await getGiveaway(db, guildId);
 
-        if (giveaway?.status === "active" && giveaway.endsAt <= Date.now()) {
+        if (
+          giveaway?.status === "active" &&
+          Number(giveaway.endsAt) <= Date.now()
+        ) {
           await endGiveaway(client, db, guildId);
         }
       }

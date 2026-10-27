@@ -406,7 +406,7 @@ const HELP_CATEGORIES = {
       {
         name: "Farewell",
         value:
-          "Farewell commands depend on the commands supported by your installed farewell handler.",
+          "Farewell commands depend on the features enabled in your installed farewell handler.",
       },
     ],
   },
@@ -414,48 +414,78 @@ const HELP_CATEGORIES = {
   giveaway: {
     label: "Giveaway",
     emoji: "🎁",
-    description: "Create giveaways and manage entries and winners.",
+    description:
+      "Giveaways with activity checks, entry requirements, keyword progress, and winner selection.",
     fields: [
       {
         name: "Slash Commands",
         value: [
-          "`/giveaway create` — Prepare a giveaway preview",
-          "`/giveaway status` — Check giveaway status",
-          "`/giveaway end` — End a giveaway and choose the winner mode",
+          "`/giveaway create` — Configure a giveaway",
+          "`/giveaway status` — Check the current giveaway",
+          "`/giveaway end` — End and choose whether to select winners",
           "`/giveaway reroll` — Select additional eligible winner(s)",
         ].join("\n"),
       },
       {
         name: "Prefix Commands",
         value: [
-          "`!giveaway status` — Check giveaway status",
+          "`!giveaway status` — View giveaway status",
+          "`!giveaway progress` — Check your giveaway progress",
+          "`!giveaway leaderboard` — View activity rankings",
           "`!giveaway end` — End and select winner(s)",
-          "`!giveaway end none` — End without selecting a winner",
+          "`!giveaway end none` — End without selecting winners",
           "`!giveaway role @Role` — Require a role to enter",
           "`!giveaway role off` — Remove the role requirement",
-          "`!giveaway role status` — Check the current role requirement",
+          "`!giveaway role status` — View the role requirement",
         ].join("\n"),
       },
       {
-        name: "Entry Requirements",
+        name: "Activity Requirements",
         value: [
-          "• Required role, if configured",
-          "• Minimum message count within a time period, if configured",
-          "• Activity on different days, if configured",
-          "• Keyword streak, if enabled",
-          "",
-          "Members enter through the **Enter Giveaway** button.",
-          "Create a giveaway using `/giveaway create`, then publish it using the preview button.",
+          "`!giveaway activity messages <number>` — Set the message target",
+          "`!giveaway activity period <24h–30d>` — Set the tracking period",
+          "`!giveaway activity mode total` — Use total messages in the period",
+          "`!giveaway activity mode daily` — Require activity each day",
+          "`!giveaway activity on` — Enable activity checks",
+          "`!giveaway activity off` — Disable activity checks",
+          "`!giveaway activity status` — View activity settings",
         ].join("\n"),
       },
       {
-        name: "Keyword Requirement",
+        name: "Keyword Progress",
         value: [
-          "`!giveaway keyword set <keyword>` — Set the required keyword",
+          "`!giveaway keyword set <keyword>` — Set the keyword",
           "`!giveaway keyword target @member` — Set the target member",
-          "`!giveaway keyword days <number>` — Set the consecutive-day streak",
-          "`!giveaway keyword status` — View keyword settings",
-          "`!giveaway keyword off` — Disable the keyword requirement",
+          "`!giveaway keyword days <number>` — Set the streak target",
+          "`!giveaway keyword window <start> <end>` — Set the Manila-time credit window",
+          "`!giveaway keyword status` — View keyword progress settings",
+          "`!giveaway keyword on` — Enable keyword tracking",
+          "`!giveaway keyword off` — Disable keyword tracking",
+          "",
+          "**Important:** Keyword credit tracks progress; it is not a giveaway entry requirement. Members can still enter if they pass the actual role and activity checks.",
+          "Keyword credit requires the configured keyword and the required mention or reply to the target during the credit window. Credit is limited to once per member per Manila calendar day.",
+        ].join("\n"),
+      },
+      {
+        name: "How to Enter",
+        value: [
+          "1. Open the active giveaway.",
+          "2. Click the **Enter Giveaway** button.",
+          "3. Meet the configured role and activity requirements.",
+          "4. Use the progress button to check your current progress.",
+          "",
+          "The keyword streak is a separate progress feature and does not automatically disqualify someone from entering.",
+        ].join("\n"),
+      },
+      {
+        name: "Ending & Winners",
+        value: [
+          "`/giveaway end` — Choose a winner mode",
+          "`select` — Select eligible winner(s)",
+          "`none` — End without selecting winners",
+          "`/giveaway reroll` — Choose replacement/additional eligible winner(s)",
+          "",
+          "Automatic ending selects eligible winner(s). If there are no eligible candidates, no winner can be selected.",
         ].join("\n"),
       },
     ],
@@ -507,7 +537,7 @@ const HELP_CATEGORIES = {
       {
         name: "AI & Personality",
         value: [
-          "`!aimode auto` — Automatic provider mode, if supported",
+          "`!aimode auto` — Use automatic provider selection, if supported",
           "`!aimode ollama` — Use Ollama, if supported",
           "`!aimode gemini` — Use Gemini, if supported",
           "`!tone english` — Prefer English, if supported",
@@ -521,10 +551,10 @@ const HELP_CATEGORIES = {
   entertainment: {
     label: "Meme & Entertainment",
     emoji: "😂",
-    description: "Meme, roast, ship, and entertainment commands.",
+    description: "Meme, roast, shipping, and entertainment features.",
     fields: [
       {
-        name: "Entertainment",
+        name: "Entertainment Commands",
         value: [
           "`!meme` — Send a random meme, if supported",
           "`!meme gaming` — Gaming memes, if supported",
@@ -548,15 +578,23 @@ const HELP_CATEGORIES = {
   autoship: {
     label: "AutoShip",
     emoji: "💞",
-    description: "Automatic and manual shipping entertainment.",
+    description:
+      "Random pairings, manual shipping, and chaotic relationship entertainment.",
     fields: [
       {
-        name: "AutoShip",
+        name: "AutoShip Features",
         value: [
-          "AutoShip is registered in Ysabelle.",
-          "Manual ship syntax, channel settings, automatic drops, and cooldown commands depend on your AutoShip handler.",
+          "`!ship @member1 @member2` — Manually ship two members, if supported",
           "",
-          "Use the AutoShip handler's help command, if available, for its exact settings.",
+          "• Automatic random ship drops",
+          "• Manual member pairings",
+          "• Random eligible member selection",
+          "• Ship history and cooldown tracking",
+          "• Channel-based ship messages, if configured",
+          "• Duplicate-pair protection, if enabled",
+          "",
+          "Automatic drops and manual shipping may use separate cooldowns.",
+          "Use your AutoShip handler's help command for the exact configuration syntax.",
         ].join("\n"),
       },
     ],
@@ -565,15 +603,17 @@ const HELP_CATEGORIES = {
   autodelete: {
     label: "AutoDelete",
     emoji: "🧹",
-    description: "Automatic message cleanup settings.",
+    description: "Automatic message cleanup and deletion timers.",
     fields: [
       {
-        name: "AutoDelete",
+        name: "AutoDelete Features",
         value: [
-          "AutoDelete is registered in Ysabelle.",
-          "Use the AutoDelete handler's help command, if available, to view supported settings.",
+          "• Automatically delete configured messages",
+          "• Configure cleanup timing, if supported",
+          "• Random-minute deletion intervals, if enabled",
+          "• View the current configuration, if supported",
           "",
-          "Available options depend on your installed AutoDelete handler.",
+          "Use the AutoDelete handler's help command for the exact commands and settings.",
         ].join("\n"),
       },
     ],
@@ -604,14 +644,14 @@ const HELP_CATEGORIES = {
         name: "Moderation",
         value: [
           "`!warn @member <reason>` — Issue a warning, if supported",
-          "`!autodelete` — Configure cleanup, if supported",
+          "`!autodelete` — Configure message cleanup, if supported",
         ].join("\n"),
       },
       {
         name: "Permissions & Privacy",
         value: [
           "• Some commands require Manage Server permission.",
-          "• Manual chat and reply commands follow your configured role permissions.",
+          "• Manual chat and reply commands follow configured role permissions.",
           "• Giveaway management requires Manage Server permission.",
           "• Memory settings affect stored conversation data.",
           "• Never share your bot token or private credentials.",
@@ -662,7 +702,6 @@ function buildHelpMenu(selectedCategory = "general") {
 
   return [new ActionRowBuilder().addComponents(menu)];
 }
-
 // --------------------------------------------------
 // Register /help without replacing other commands
 // --------------------------------------------------

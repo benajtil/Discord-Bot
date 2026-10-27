@@ -15,6 +15,8 @@ const {
   ChannelType,
   SlashCommandBuilder,
   MessageFlags,
+  ActionRowBuilder,
+  StringSelectMenuBuilder,
 } = require("discord.js");
 
 const { QuickDB } = require("quick.db");
@@ -351,111 +353,120 @@ function chooseBackground() {
 // Private help embed
 // --------------------------------------------------
 
-function buildHelpEmbed(user) {
-  return new EmbedBuilder()
-    .setTitle("💜 Ysabelle • Private Command Guide")
-    .setColor(0x8b5cf6)
-    .setDescription(
-      [
-        `Hello, ${user.username}!`,
-        "",
-        "This guide is visible only to you when opened privately.",
-        "",
-        `**Prefix:** \`${PREFIX}\``,
-        "**Slash commands:** Type `/` to find registered commands.",
-        "Replace placeholders such as `@member`, `#channel`, and `<text>` with actual values.",
-      ].join("\n"),
-    )
-    .addFields(
+const HELP_CATEGORIES = {
+  general: {
+    label: "General",
+    emoji: "📌",
+    description: "Basic commands and server information.",
+    fields: [
       {
-        name: "📌 General",
+        name: "General Commands",
         value: [
-          "`!help` — Show this command guide",
-          "`/ysabelle-help` — Open this guide privately",
-          "`!ping` — Check bot latency, if registered",
-          "`!server` — View server information, if registered",
-          "`!userinfo [@member]` — View member information, if registered",
+          "`!help` — Show the private command guide",
+          "`/ysabelle-help` — Open the interactive guide",
+          "`!ping` — Check bot latency",
+          "`!server` — View server information",
+          "`!userinfo [@member]` — View member information",
         ].join("\n"),
       },
+    ],
+  },
+
+  welcome: {
+    label: "Welcome & Farewell",
+    emoji: "👋",
+    description: "Configure welcome messages, images, and farewell features.",
+    fields: [
       {
-        name: "👋 Welcome Setup",
+        name: "Welcome Setup",
         value: [
           "`!setwelcome #channel` — Set the embed welcome channel",
           "`!setwelcomeimage #channel` — Set the image welcome channel",
-          "`!welcomedesc <text>` — Set the welcome message",
-          "`!welcomethumbnail <URL>` — Set the welcome thumbnail",
-          "`!welcomebanner <URL>` — Set the welcome banner",
+          "`!welcomedesc <text>` — Customize welcome text",
+          "`!welcomethumbnail <URL>` — Set the thumbnail",
+          "`!welcomebanner <URL>` — Set the banner",
           "`!welcomeoff` — Disable embed welcomes",
           "`!welcomeimageoff` — Disable image welcomes",
-          "`!welcometest` — Test the embed welcome",
-          "`!welcomeimagetest` — Test the image welcome",
+          "`!welcometest` — Test an embed welcome",
+          "`!welcomeimagetest` — Test a welcome image",
         ].join("\n"),
       },
       {
-        name: "🚪 Farewell",
-        value: [
-          "`!setleave #channel` — Set the farewell channel, if implemented",
-          "`!leavedesc <text>` — Customize farewell text, if implemented",
-          "`!leaveoff` — Disable farewells, if implemented",
-          "`!leavetest` — Test farewell messages, if implemented",
-        ].join("\n"),
-      },
-      {
-        name: "📝 Welcome Template Variables",
+        name: "Template Variables",
         value: [
           "`?user` — Member display name",
           "`?tag` — Username or user tag",
           "`?mention` — Mention the member",
           "`?server` — Server name",
-          "`?rank` — Current member count",
+          "`?rank` — Current server member count",
           "`?useravatar` — Member avatar URL",
           "`?serveravatar` — Server icon URL",
         ].join("\n"),
       },
       {
-        name: "🎁 Giveaway Setup",
+        name: "Farewell",
+        value:
+          "Farewell commands depend on the commands supported by your installed farewell handler.",
+      },
+    ],
+  },
+
+  giveaway: {
+    label: "Giveaway",
+    emoji: "🎁",
+    description: "Create giveaways and manage entries and winners.",
+    fields: [
+      {
+        name: "Slash Commands",
         value: [
-          "`/giveaway create` — Create a giveaway",
-          "`/giveaway prize <text>` — Set the prize",
-          "`/giveaway channel #channel` — Select the channel",
-          "`/giveaway ends <date/time>` — Set the deadline",
-          "`/giveaway winners <number>` — Set winner count",
+          "`/giveaway create` — Prepare a giveaway preview",
+          "`/giveaway status` — Check giveaway status",
+          "`/giveaway end` — End a giveaway and choose the winner mode",
+          "`/giveaway reroll` — Select additional eligible winner(s)",
         ].join("\n"),
-        inline: false,
       },
       {
-        name: "🔐 Giveaway Requirements",
+        name: "Prefix Commands",
         value: [
-          "`/giveaway requirement-messages <count> <days>` — Message requirement",
-          "`/giveaway requirement-days <count> <days>` — Active-day requirement",
-          "`/giveaway requirement-role @role` — Require a role",
+          "`!giveaway status` — Check giveaway status",
+          "`!giveaway end` — End and select winner(s)",
+          "`!giveaway end none` — End without selecting a winner",
         ].join("\n"),
-        inline: false,
       },
       {
-        name: "⚙️ Giveaway Management",
+        name: "Entry Requirements",
         value: [
-          "`/giveaway preview` — Preview settings",
-          "`/giveaway publish` — Publish the giveaway",
-          "`/giveaway status` — Check status",
-          "`/giveaway end` — End the giveaway",
-          "`/giveaway reroll` — Select another winner",
-          "`/giveaway reset` — Reset giveaway data",
+          "• Required role, if configured",
+          "• Minimum message count within a time period, if configured",
+          "• Activity on different days, if configured",
+          "• Keyword streak, if enabled",
+          "",
+          "Members enter through the **Enter Giveaway** button.",
+          "Create a giveaway using `/giveaway create`, then publish it using the preview button.",
         ].join("\n"),
-        inline: false,
       },
       {
-        name: "🎉 Joining & Eligibility",
+        name: "Keyword Requirement",
         value: [
-          "React with 🎉 to enter.",
-          "Ineligible reactions are removed, and the missing requirement is explained.",
+          "`!giveaway keyword set <keyword>` — Set the required keyword",
+          "`!giveaway keyword target @member` — Set the target member",
+          "`!giveaway keyword days <number>` — Set the consecutive-day streak",
+          "`!giveaway keyword status` — View keyword settings",
+          "`!giveaway keyword off` — Disable the keyword requirement",
         ].join("\n"),
-        inline: false,
       },
+    ],
+  },
+
+  memory: {
+    label: "Conversation Memory",
+    emoji: "🧠",
+    description: "Manage Ysabelle's saved conversation history and facts.",
+    fields: [
       {
-        name: "🧠 Conversation Memory",
+        name: "Memory Commands",
         value: [
-          "`!memory help` — Show memory commands",
+          "`!memory help` — View memory help",
           "`!memory on` — Enable memory storage",
           "`!memory off` — Disable new memory storage",
           "`!memory show` — View recent history",
@@ -467,92 +478,186 @@ function buildHelpEmbed(user) {
           "`!memory channelclear` — Clear channel history, if supported",
         ].join("\n"),
       },
+    ],
+  },
+
+  chat: {
+    label: "Chat & AI",
+    emoji: "💬",
+    description:
+      "Manual chat, reply permissions, AI providers, and tone settings.",
+    fields: [
       {
-        name: "💬 Manual Chat & Reply",
+        name: "Manual Chat & Reply",
         value: [
-          "`!chat <message>` — Post a message through the bot, if authorized",
-          "`!reply <message>` — Send a manual reply through the bot, if authorized",
-          "`!manualcmd help` — Show manual-command settings help",
-          "`!manualcmd status` — View manual-command configuration",
-          "`!manualcmd chatrole @role` — Assign a role allowed to use chat",
-          "`!manualcmd replyrole @role` — Assign a role allowed to use reply",
-          "`!manualcmd clearchatroles` — Clear assigned chat roles",
-          "`!manualcmd clearreplyroles` — Clear assigned reply roles",
-          "`!manualcmd audit` — View manual-command audit settings",
-          "`!manualcmd content` — View content settings, if supported",
-          "`!manualcmd adminbypass` — Configure administrator bypass, if supported",
+          "`!chat <message>` — Send a message through the bot, if authorized",
+          "`!reply <message>` — Send a manual reply, if authorized",
+          "`!manualcmd help` — Show manual-command help",
+          "`!manualcmd status` — View configuration",
+          "`!manualcmd chatrole @role` — Allow a role to use chat",
+          "`!manualcmd replyrole @role` — Allow a role to use reply",
+          "`!manualcmd clearchatroles` — Clear chat roles",
+          "`!manualcmd clearreplyroles` — Clear reply roles",
+          "`!manualcmd audit` — View audit settings",
         ].join("\n"),
       },
       {
-        name: "🤖 AI & Personality",
+        name: "AI & Personality",
         value: [
-          "`!aimode auto` — Automatic AI provider selection, if implemented",
-          "`!aimode ollama` — Select Ollama, if implemented",
-          "`!aimode gemini` — Select Gemini, if implemented",
-          "`!tone english` — English responses, if implemented",
-          "`!tone tagalog` — Tagalog responses, if implemented",
-          "`!tone taglish` — Taglish responses, if implemented",
-          "AI provider and personality commands depend on your current AI handler.",
+          "`!aimode auto` — Automatic provider mode, if supported",
+          "`!aimode ollama` — Use Ollama, if supported",
+          "`!aimode gemini` — Use Gemini, if supported",
+          "`!tone english` — Prefer English, if supported",
+          "`!tone tagalog` — Prefer Tagalog, if supported",
+          "`!tone taglish` — Prefer Taglish, if supported",
         ].join("\n"),
       },
+    ],
+  },
+
+  entertainment: {
+    label: "Meme & Entertainment",
+    emoji: "😂",
+    description: "Meme, roast, ship, and entertainment commands.",
+    fields: [
       {
-        name: "😂 Meme & Roast",
+        name: "Entertainment",
         value: [
-          "`!meme` — Send a random meme, if registered",
+          "`!meme` — Send a random meme, if supported",
           "`!meme gaming` — Gaming memes, if supported",
           "`!meme school` — School memes, if supported",
           "`!meme relationship` — Relationship memes, if supported",
-          "`!roast @member` — Roast a member, if registered",
+          "`!roast @member` — Roast a member, if supported",
           "`!ship @member1 @member2` — Ship two members, if supported",
-          "`!nsfw status` — Check NSFW setting, if supported",
-          "`!nsfw on/off` — Change NSFW setting, if supported",
-          "`!entertainment help` — Entertainment guide, if supported",
+          "`!entertainment help` — Show entertainment help, if supported",
         ].join("\n"),
       },
       {
-        name: "💞 AutoShip",
+        name: "NSFW Settings",
         value: [
-          "AutoShip handler is registered.",
-          "Manual ship commands and automatic ship drops depend on the commands configured in your AutoShip module.",
-          "Check that module's help output for the exact syntax.",
+          "`!nsfw status` — Check NSFW settings, if supported",
+          "`!nsfw on` / `!nsfw off` — Change settings, if supported",
+        ].join("\n"),
+      },
+    ],
+  },
+
+  autoship: {
+    label: "AutoShip",
+    emoji: "💞",
+    description: "Automatic and manual shipping entertainment.",
+    fields: [
+      {
+        name: "AutoShip",
+        value: [
+          "AutoShip is registered in Ysabelle.",
+          "Manual ship syntax, channel settings, automatic drops, and cooldown commands depend on your AutoShip handler.",
+          "",
+          "Use the AutoShip handler's help command, if available, for its exact settings.",
+        ].join("\n"),
+      },
+    ],
+  },
+
+  autodelete: {
+    label: "AutoDelete",
+    emoji: "🧹",
+    description: "Automatic message cleanup settings.",
+    fields: [
+      {
+        name: "AutoDelete",
+        value: [
+          "AutoDelete is registered in Ysabelle.",
+          "Use the AutoDelete handler's help command, if available, to view supported settings.",
+          "",
+          "Available options depend on your installed AutoDelete handler.",
+        ].join("\n"),
+      },
+    ],
+  },
+
+  confessions: {
+    label: "Confessions",
+    emoji: "💜",
+    description: "Anonymous confession features.",
+    fields: [
+      {
+        name: "Confession Commands",
+        value: [
+          "`/confess` — Submit a confession, if registered",
+          "",
+          "Moderation and management commands depend on your confession handler and permissions.",
+        ].join("\n"),
+      },
+    ],
+  },
+
+  moderation: {
+    label: "Moderation & Security",
+    emoji: "🛡️",
+    description: "Moderation commands and access controls.",
+    fields: [
+      {
+        name: "Moderation",
+        value: [
+          "`!warn @member <reason>` — Issue a warning, if supported",
+          "`!autodelete` — Configure cleanup, if supported",
         ].join("\n"),
       },
       {
-        name: "🧹 AutoDelete",
+        name: "Permissions & Privacy",
         value: [
-          "AutoDelete handler is registered.",
-          "Use the AutoDelete command's own help output to see supported cleanup settings.",
-          "Available options depend on your installed handler.",
+          "• Some commands require Manage Server permission.",
+          "• Manual chat and reply commands follow your configured role permissions.",
+          "• Giveaway management requires Manage Server permission.",
+          "• Memory settings affect stored conversation data.",
+          "• Never share your bot token or private credentials.",
         ].join("\n"),
       },
-      {
-        name: "💜 Confessions",
-        value: [
-          "`/confess` — Submit an anonymous confession, if registered",
-          "Identity lookup and confession-management commands depend on your permissions and confession handler.",
-        ].join("\n"),
-      },
-      {
-        name: "🛡️ Moderation",
-        value: [
-          "`!warn @member <reason>` — Issue a warning, if registered",
-          "`!autodelete` — Configure automatic message cleanup, if supported",
-          "Other moderation commands depend on your installed modules.",
-        ].join("\n"),
-      },
-      {
-        name: "🔐 Permissions & Privacy",
-        value: [
-          "Some commands are restricted to administrators or assigned roles.",
-          "Manual chat and reply access follows your manual-command configuration.",
-          "Giveaway management requires Manage Server permission in the provided module.",
-          "Memory controls may affect what conversation data is stored.",
-          "Never share your bot token or private credentials.",
-        ].join("\n"),
-      },
+    ],
+  },
+};
+
+function buildHelpEmbed(user, category = "general") {
+  const page = HELP_CATEGORIES[category] || HELP_CATEGORIES.general;
+
+  return new EmbedBuilder()
+    .setTitle(`${page.emoji} Ysabelle • ${page.label}`)
+    .setColor(0x8b5cf6)
+    .setDescription(
+      [
+        `Hello, ${user.username}!`,
+        "",
+        page.description,
+        "",
+        `**Prefix:** \`${PREFIX}\``,
+        "Choose a category from the menu below to browse commands.",
+      ].join("\n"),
     )
-    .setFooter({ text: "Ysabelle • Kator6 | Command Guide" })
+    .addFields(page.fields)
+    .setFooter({
+      text: `Ysabelle • Kator6 | Category: ${page.label}`,
+    })
     .setTimestamp();
+}
+
+function buildHelpMenu(selectedCategory = "general") {
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId("ysabelle_help_category")
+    .setPlaceholder("Choose a feature to view its commands")
+    .setMinValues(1)
+    .setMaxValues(1)
+    .addOptions(
+      Object.entries(HELP_CATEGORIES).map(([value, page]) => ({
+        label: page.label,
+        value,
+        emoji: page.emoji,
+        description: page.description.slice(0, 100),
+        default: value === selectedCategory,
+      })),
+    );
+
+  return [new ActionRowBuilder().addComponents(menu)];
 }
 
 // --------------------------------------------------
@@ -601,6 +706,27 @@ async function registerHelpCommand() {
 
 client.on(Events.InteractionCreate, async (interaction) => {
   try {
+    if (
+      interaction.isStringSelectMenu() &&
+      interaction.customId === "ysabelle_help_category"
+    ) {
+      const selectedCategory = interaction.values[0];
+
+      if (!HELP_CATEGORIES[selectedCategory]) {
+        await interaction.reply({
+          content: "That help category is not available.",
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+
+      await interaction.update({
+        embeds: [buildHelpEmbed(interaction.user, selectedCategory)],
+        components: buildHelpMenu(selectedCategory),
+      });
+
+      return;
+    }
     if (interaction.isChatInputCommand()) {
       if (interaction.commandName === "giveaway") {
         await giveawayModule.handleSlashCommand(interaction);
@@ -609,7 +735,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
       if (interaction.commandName === "ysabelle-help") {
         await interaction.reply({
-          embeds: [buildHelpEmbed(interaction.user)],
+          embeds: [buildHelpEmbed(interaction.user, "general")],
+          components: buildHelpMenu("general"),
           flags: MessageFlags.Ephemeral,
         });
       }
@@ -1028,6 +1155,7 @@ if (!process.env.DISCORD_TOKEN) {
 client.once("ready", async () => {
   console.log(`[Ysabelle] Logged in as ${client.user.tag}`);
   await registerGiveawaySlashCommand();
+  await registerHelpCommand();
 });
 client.on("shardDisconnect", (event, shardId) => {
   console.error(

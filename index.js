@@ -45,6 +45,7 @@ const { registerAutoShip } = require("./handlers/entertainment/autoship");
 const { registerAutoReply } = require("./handlers/autoreply/autoreply");
 const { handleWarnCommand } = require("./handlers/moderation/warn");
 const { registerConfessions } = require("./handlers/entertainment/confessions");
+const createGiveawayModule = require("./handlers/giveaway/giveaway");
 
 registerAutoShip(client);
 registerAutoDelete(client);
@@ -62,7 +63,7 @@ const COOLDOWN_SECONDS = 1;
 const fontDirectory = path.join(__dirname, "fonts");
 const vampireFont = path.join(fontDirectory, "Vampire Wars.ttf");
 const quicksandFont = path.join(fontDirectory, "Quicksand-SemiBold.ttf");
-
+const giveawayModule = createGiveawayModule(client, db, PREFIX);
 // --------------------------------------------------
 // Fonts
 // --------------------------------------------------
@@ -91,7 +92,27 @@ function isValidHttpUrl(value) {
     return false;
   }
 }
+async function registerGiveawaySlashCommand() {
+  try {
+    const commandData = giveawayModule.slashCommand.toJSON();
 
+    const existingCommands = await client.application.commands.fetch();
+
+    const existing = existingCommands.find(
+      (command) => command.name === "giveaway",
+    );
+
+    if (existing) {
+      await client.application.commands.edit(existing.id, commandData);
+    } else {
+      await client.application.commands.create(commandData);
+    }
+
+    console.log("[Giveaway] Registered /giveaway");
+  } catch (error) {
+    console.error("[Giveaway] Slash command registration failed:", error);
+  }
+}
 const backgroundFile = path.join(__dirname, "JSON", "link.json");
 let backgroundLinks = [];
 
@@ -333,15 +354,16 @@ function chooseBackground() {
 
 function buildHelpEmbed(user) {
   return new EmbedBuilder()
-    .setTitle("Ysabelle • Private Command Guide")
+    .setTitle("💜 Ysabelle • Private Command Guide")
     .setColor(0x8b5cf6)
     .setDescription(
       [
         `Hello, ${user.username}!`,
         "",
-        "This guide is visible only to you when opened through `/help`.",
+        "This guide is visible only to you when opened privately.",
         "",
         `**Prefix:** \`${PREFIX}\``,
+        "**Slash commands:** Type `/` to find registered commands.",
         "Replace placeholders such as `@member`, `#channel`, and `<text>` with actual values.",
       ].join("\n"),
     )
@@ -349,10 +371,11 @@ function buildHelpEmbed(user) {
       {
         name: "📌 General",
         value: [
-          "`!help` — Show this private guide",
-          "`!ping` — Check bot latency",
-          "`!server` — View server information",
-          "`!userinfo [@member]` — View member information",
+          "`!help` — Show this command guide",
+          "`/ysabelle-help` — Open this guide privately",
+          "`!ping` — Check bot latency, if registered",
+          "`!server` — View server information, if registered",
+          "`!userinfo [@member]` — View member information, if registered",
         ].join("\n"),
       },
       {
@@ -375,7 +398,7 @@ function buildHelpEmbed(user) {
           "`!setleave #channel` — Set the farewell channel, if implemented",
           "`!leavedesc <text>` — Customize farewell text, if implemented",
           "`!leaveoff` — Disable farewells, if implemented",
-          "`!leavetest` — Test farewells, if implemented",
+          "`!leavetest` — Test farewell messages, if implemented",
         ].join("\n"),
       },
       {
@@ -391,9 +414,31 @@ function buildHelpEmbed(user) {
         ].join("\n"),
       },
       {
+        name: "🎉 Giveaway Management",
+        value: [
+          "`/giveaway create` or `!giveaway create` — Create a draft",
+          "`/giveaway prize` or `!giveaway prize <text>` — Set the prize",
+          "`/giveaway channel` or `!giveaway channel #channel` — Choose the channel",
+          "`/giveaway ends` or `!giveaway ends <ISO date/time>` — Set the deadline",
+          "`/giveaway winners` or `!giveaway winners <number>` — Set winner count",
+          "`/giveaway requirement-messages` or `!giveaway requirement-messages <count> <days>` — Set message requirement",
+          "`/giveaway requirement-days` or `!giveaway requirement-days <count> <days>` — Set active-day requirement",
+          "`/giveaway requirement-role` or `!giveaway requirement-role @role` — Require a role",
+          "`/giveaway preview` or `!giveaway preview` — Preview settings",
+          "`/giveaway publish` or `!giveaway publish` — Publish the giveaway",
+          "`/giveaway status` or `!giveaway status` — Check status",
+          "`/giveaway end` or `!giveaway end` — End the giveaway",
+          "`/giveaway reroll` or `!giveaway reroll` — Reroll a winner",
+          "`/giveaway reset` or `!giveaway reset` — Reset giveaway data",
+          "",
+          "**Joining:** React with 🎉.",
+          "**Eligibility:** Ineligible reactions are removed and the missing requirement is explained.",
+        ].join("\n"),
+      },
+      {
         name: "🧠 Conversation Memory",
         value: [
-          "`!memory help` — Memory command guide",
+          "`!memory help` — Show memory commands",
           "`!memory on` — Enable memory storage",
           "`!memory off` — Disable new memory storage",
           "`!memory show` — View recent history",
@@ -406,6 +451,22 @@ function buildHelpEmbed(user) {
         ].join("\n"),
       },
       {
+        name: "💬 Manual Chat & Reply",
+        value: [
+          "`!chat <message>` — Post a message through the bot, if authorized",
+          "`!reply <message>` — Send a manual reply through the bot, if authorized",
+          "`!manualcmd help` — Show manual-command settings help",
+          "`!manualcmd status` — View manual-command configuration",
+          "`!manualcmd chatrole @role` — Assign a role allowed to use chat",
+          "`!manualcmd replyrole @role` — Assign a role allowed to use reply",
+          "`!manualcmd clearchatroles` — Clear assigned chat roles",
+          "`!manualcmd clearreplyroles` — Clear assigned reply roles",
+          "`!manualcmd audit` — View manual-command audit settings",
+          "`!manualcmd content` — View content settings, if supported",
+          "`!manualcmd adminbypass` — Configure administrator bypass, if supported",
+        ].join("\n"),
+      },
+      {
         name: "🤖 AI & Personality",
         value: [
           "`!aimode auto` — Automatic AI provider selection, if implemented",
@@ -414,12 +475,13 @@ function buildHelpEmbed(user) {
           "`!tone english` — English responses, if implemented",
           "`!tone tagalog` — Tagalog responses, if implemented",
           "`!tone taglish` — Taglish responses, if implemented",
+          "AI provider and personality commands depend on your current AI handler.",
         ].join("\n"),
       },
       {
         name: "😂 Meme & Roast",
         value: [
-          "`!meme` — Random meme, if registered",
+          "`!meme` — Send a random meme, if registered",
           "`!meme gaming` — Gaming memes, if supported",
           "`!meme school` — School memes, if supported",
           "`!meme relationship` — Relationship memes, if supported",
@@ -432,28 +494,47 @@ function buildHelpEmbed(user) {
       },
       {
         name: "💞 AutoShip",
-        value:
-          "AutoShip is registered. Its exact commands depend on your `handlers/entertainment/autoship.js` module.",
+        value: [
+          "AutoShip handler is registered.",
+          "Manual ship commands and automatic ship drops depend on the commands configured in your AutoShip module.",
+          "Check that module's help output for the exact syntax.",
+        ].join("\n"),
       },
       {
         name: "🧹 AutoDelete",
-        value:
-          "AutoDelete is registered. Its exact commands depend on your `handlers/autodelete/autodelete.js` module.",
+        value: [
+          "AutoDelete handler is registered.",
+          "Use the AutoDelete command's own help output to see supported cleanup settings.",
+          "Available options depend on your installed handler.",
+        ].join("\n"),
       },
       {
         name: "💜 Confessions",
-        value:
-          "`/confess` — Submit a confession if your confessions module registers this command.",
+        value: [
+          "`/confess` — Submit an anonymous confession, if registered",
+          "Identity lookup and confession-management commands depend on your permissions and confession handler.",
+        ].join("\n"),
       },
       {
         name: "🛡️ Moderation",
         value: [
-          "`!warn @member <reason>` — Use the registered warning handler",
-          "Other moderation commands depend on your moderation modules.",
+          "`!warn @member <reason>` — Issue a warning, if registered",
+          "`!autodelete` — Configure automatic message cleanup, if supported",
+          "Other moderation commands depend on your installed modules.",
+        ].join("\n"),
+      },
+      {
+        name: "🔐 Permissions & Privacy",
+        value: [
+          "Some commands are restricted to administrators or assigned roles.",
+          "Manual chat and reply access follows your manual-command configuration.",
+          "Giveaway management requires Manage Server permission in the provided module.",
+          "Memory controls may affect what conversation data is stored.",
+          "Never share your bot token or private credentials.",
         ].join("\n"),
       },
     )
-    .setFooter({ text: "Ysabelle • Kator6" })
+    .setFooter({ text: "Ysabelle • Kator6 | Command Guide" })
     .setTimestamp();
 }
 
@@ -922,8 +1003,9 @@ if (!process.env.DISCORD_TOKEN) {
   process.exit(1);
 }
 
-client.once("ready", () => {
+client.once("ready", async () => {
   console.log(`[Ysabelle] Logged in as ${client.user.tag}`);
+  await registerGiveawaySlashCommand();
 });
 client.on("shardDisconnect", (event, shardId) => {
   console.error(

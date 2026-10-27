@@ -45,8 +45,7 @@ const { registerAutoShip } = require("./handlers/entertainment/autoship");
 const { registerAutoReply } = require("./handlers/autoreply/autoreply");
 const { handleWarnCommand } = require("./handlers/moderation/warn");
 const { registerConfessions } = require("./handlers/entertainment/confessions");
-const createGiveawayModule = require("./handlers/giveaway/giveaway");
-
+const { createGiveawayModule } = require("./handlers/giveaway/giveaway");
 registerAutoShip(client);
 registerAutoDelete(client);
 registerMemory(client, db, PREFIX);
@@ -414,26 +413,44 @@ function buildHelpEmbed(user) {
         ].join("\n"),
       },
       {
-        name: "🎉 Giveaway Management",
+        name: "🎁 Giveaway Setup",
         value: [
-          "`/giveaway create` or `!giveaway create` — Create a draft",
-          "`/giveaway prize` or `!giveaway prize <text>` — Set the prize",
-          "`/giveaway channel` or `!giveaway channel #channel` — Choose the channel",
-          "`/giveaway ends` or `!giveaway ends <ISO date/time>` — Set the deadline",
-          "`/giveaway winners` or `!giveaway winners <number>` — Set winner count",
-          "`/giveaway requirement-messages` or `!giveaway requirement-messages <count> <days>` — Set message requirement",
-          "`/giveaway requirement-days` or `!giveaway requirement-days <count> <days>` — Set active-day requirement",
-          "`/giveaway requirement-role` or `!giveaway requirement-role @role` — Require a role",
-          "`/giveaway preview` or `!giveaway preview` — Preview settings",
-          "`/giveaway publish` or `!giveaway publish` — Publish the giveaway",
-          "`/giveaway status` or `!giveaway status` — Check status",
-          "`/giveaway end` or `!giveaway end` — End the giveaway",
-          "`/giveaway reroll` or `!giveaway reroll` — Reroll a winner",
-          "`/giveaway reset` or `!giveaway reset` — Reset giveaway data",
-          "",
-          "**Joining:** React with 🎉.",
-          "**Eligibility:** Ineligible reactions are removed and the missing requirement is explained.",
+          "`/giveaway create` — Create a giveaway",
+          "`/giveaway prize <text>` — Set the prize",
+          "`/giveaway channel #channel` — Select the channel",
+          "`/giveaway ends <date/time>` — Set the deadline",
+          "`/giveaway winners <number>` — Set winner count",
         ].join("\n"),
+        inline: false,
+      },
+      {
+        name: "🔐 Giveaway Requirements",
+        value: [
+          "`/giveaway requirement-messages <count> <days>` — Message requirement",
+          "`/giveaway requirement-days <count> <days>` — Active-day requirement",
+          "`/giveaway requirement-role @role` — Require a role",
+        ].join("\n"),
+        inline: false,
+      },
+      {
+        name: "⚙️ Giveaway Management",
+        value: [
+          "`/giveaway preview` — Preview settings",
+          "`/giveaway publish` — Publish the giveaway",
+          "`/giveaway status` — Check status",
+          "`/giveaway end` — End the giveaway",
+          "`/giveaway reroll` — Select another winner",
+          "`/giveaway reset` — Reset giveaway data",
+        ].join("\n"),
+        inline: false,
+      },
+      {
+        name: "🎉 Joining & Eligibility",
+        value: [
+          "React with 🎉 to enter.",
+          "Ineligible reactions are removed, and the missing requirement is explained.",
+        ].join("\n"),
+        inline: false,
       },
       {
         name: "🧠 Conversation Memory",
@@ -583,29 +600,33 @@ async function registerHelpCommand() {
 // --------------------------------------------------
 
 client.on(Events.InteractionCreate, async (interaction) => {
-  if (!interaction.isChatInputCommand()) return;
-
-  if (interaction.commandName === "ysabelle-help") {
-    try {
-      await interaction.reply({
-        embeds: [buildHelpEmbed(interaction.user)],
-        flags: MessageFlags.Ephemeral,
-      });
-    } catch (error) {
-      console.error("Could not send private help:", error);
-
-      if (!interaction.replied && !interaction.deferred) {
-        await interaction
-          .reply({
-            content: "I couldn't display the help guide. Please try again.",
-            flags: MessageFlags.Ephemeral,
-          })
-          .catch(() => {});
+  try {
+    if (interaction.isChatInputCommand()) {
+      if (interaction.commandName === "giveaway") {
+        await giveawayModule.handleSlashCommand(interaction);
+        return;
       }
+
+      if (interaction.commandName === "ysabelle-help") {
+        await interaction.reply({
+          embeds: [buildHelpEmbed(interaction.user)],
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+    }
+  } catch (error) {
+    console.error("[Ysabelle] Interaction error:", error);
+
+    if (!interaction.replied && !interaction.deferred) {
+      await interaction
+        .reply({
+          content: "Something went wrong while processing that command.",
+          flags: MessageFlags.Ephemeral,
+        })
+        .catch(() => {});
     }
   }
 });
-
 // --------------------------------------------------
 // Embed welcome event
 // --------------------------------------------------
@@ -712,6 +733,7 @@ client.on(Events.MessageCreate, async (message) => {
   const [rawCommand, ...args] = input.split(/\s+/);
   const command = rawCommand.toLowerCase();
   const rest = input.slice(rawCommand.length).trim();
+  if (await giveawayModule.handlePrefix(message)) return;
 
   if (command === "help") {
     await message.delete().catch(() => {});
@@ -1045,5 +1067,3 @@ client.login(process.env.DISCORD_TOKEN).catch((error) => {
 process.on("unhandledRejection", (error) => {
   console.error("[Ysabelle] Unhandled promise rejection:", error);
 });
-
-client.login(process.env.DISCORD_TOKEN);

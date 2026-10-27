@@ -638,82 +638,6 @@ async function endGiveaway(
 }
 
 /* -------------------- SLASH COMMAND -------------------- */
-/* ---------- REQUIRED ROLE COMMANDS ---------- */
-
-if (group === "role") {
-  const action = (args.shift() || "").toLowerCase();
-  const giveaway = await getGiveaway(db, message.guild.id);
-
-  if (!giveaway || !["draft", "active"].includes(giveaway.status)) {
-    await message.reply(
-      "There is no draft or active giveaway to configure. Create a giveaway first.",
-    );
-    return true;
-  }
-
-  // Show the current role requirement.
-  if (action === "status") {
-    await message.reply(
-      giveaway.requiredRoleId
-        ? `🔒 Required role: <@&${giveaway.requiredRoleId}>`
-        : "🔓 No specific role is required to enter the current giveaway.",
-    );
-    return true;
-  }
-
-  // Remove the role requirement.
-  if (action === "off") {
-    giveaway.requiredRoleId = null;
-
-    await saveGiveaway(db, message.guild.id, giveaway);
-    await refreshGiveawayMessage(client, db, message.guild.id);
-
-    await message.reply(
-      "✅ The required role has been removed. Any member who meets the other requirements can enter.",
-    );
-    return true;
-  }
-
-  // Accept a role mention or a role ID.
-  const roleId =
-    message.mentions.roles.first()?.id || action.replace(/[<@&>]/g, "");
-
-  if (!/^\d{17,20}$/.test(roleId)) {
-    await message.reply(
-      [
-        "**Required Role Commands**",
-        `\`${prefix}giveaway role @Role\` — Require a role to enter`,
-        `\`${prefix}giveaway role off\` — Remove the role requirement`,
-        `\`${prefix}giveaway role status\` — Check the current requirement`,
-        "",
-        "Example:",
-        `\`${prefix}giveaway role @VIP\``,
-      ].join("\n"),
-    );
-    return true;
-  }
-
-  const role = await message.guild.roles.fetch(roleId).catch(() => null);
-
-  if (!role || role.id === message.guild.id) {
-    await message.reply(
-      "❌ I couldn't find that role. Please mention a valid server role.",
-    );
-    return true;
-  }
-
-  giveaway.requiredRoleId = role.id;
-
-  await saveGiveaway(db, message.guild.id, giveaway);
-  await refreshGiveawayMessage(client, db, message.guild.id);
-
-  await message.reply(
-    `✅ **${role.name}** is now required to enter the giveaway.\n` +
-      `Members without <@&${role.id}> cannot enter.`,
-  );
-
-  return true;
-}
 function buildGiveawaySlashCommand() {
   return new SlashCommandBuilder()
     .setName("giveaway")
@@ -945,6 +869,79 @@ function createGiveawayModule(client, db, prefix = "!") {
       await message.reply(
         "Only the server owner or someone with Manage Server permission can manage giveaways.",
       );
+      return true;
+    }
+    /* ---------- REQUIRED ROLE COMMANDS ---------- */
+
+    if (group === "role") {
+      const action = (args.shift() || "").toLowerCase();
+      const giveaway = await getGiveaway(db, message.guild.id);
+
+      if (!giveaway || !["draft", "active"].includes(giveaway.status)) {
+        await message.reply(
+          "There is no draft or active giveaway to configure. Create a giveaway first.",
+        );
+        return true;
+      }
+
+      if (action === "status") {
+        await message.reply(
+          giveaway.requiredRoleId
+            ? `🔒 Required role: <@&${giveaway.requiredRoleId}>`
+            : "🔓 No specific role is required to enter the current giveaway.",
+        );
+        return true;
+      }
+
+      if (action === "off") {
+        giveaway.requiredRoleId = null;
+
+        await saveGiveaway(db, message.guild.id, giveaway);
+        await refreshGiveawayMessage(client, db, message.guild.id);
+
+        await message.reply(
+          "✅ The required role has been removed. Any member who meets the other requirements can enter.",
+        );
+        return true;
+      }
+
+      const roleId =
+        message.mentions.roles.first()?.id || action.replace(/[<@&>]/g, "");
+
+      if (!/^\d{17,20}$/.test(roleId)) {
+        await message.reply(
+          [
+            "**Required Role Commands**",
+            `\`${prefix}giveaway role @Role\` — Require a role to enter`,
+            `\`${prefix}giveaway role off\` — Remove the role requirement`,
+            `\`${prefix}giveaway role status\` — Check the current requirement`,
+            "",
+            "Example:",
+            `\`${prefix}giveaway role @VIP\``,
+          ].join("\n"),
+        );
+        return true;
+      }
+
+      const role = await message.guild.roles.fetch(roleId).catch(() => null);
+
+      if (!role || role.id === message.guild.id) {
+        await message.reply(
+          "❌ I couldn't find that role. Please mention a valid server role.",
+        );
+        return true;
+      }
+
+      giveaway.requiredRoleId = role.id;
+
+      await saveGiveaway(db, message.guild.id, giveaway);
+      await refreshGiveawayMessage(client, db, message.guild.id);
+
+      await message.reply(
+        `✅ **${role.name}** is now required to enter the giveaway.\n` +
+          `Members without <@&${role.id}> cannot enter.`,
+      );
+
       return true;
     }
 

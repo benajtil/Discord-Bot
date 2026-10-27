@@ -47,7 +47,7 @@ const { registerAutoShip } = require("./handlers/entertainment/autoship");
 const { registerAutoReply } = require("./handlers/autoreply/autoreply");
 const { handleWarnCommand } = require("./handlers/moderation/warn");
 const { registerConfessions } = require("./handlers/entertainment/confessions");
-const { createGiveawayModule } = require("./handlers/giveaway/giveaway");
+const createGiveawayModule = require("./handlers/giveaway/giveaway");
 registerAutoShip(client);
 registerAutoDelete(client);
 registerMemory(client, db, PREFIX);

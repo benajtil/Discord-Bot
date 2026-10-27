@@ -34,6 +34,10 @@ function manilaDay(timestamp = Date.now()) {
   return `${p.year}-${p.month}-${p.day}`;
 }
 
+function manilaDayOffset(daysAgo = 0) {
+  return manilaDay(Date.now() - daysAgo * DAY);
+}
+
 function progressBar(current, target, size = 10) {
   const filled = Math.max(
     0,
@@ -286,7 +290,7 @@ module.exports = function createGiveawayModule(client, db, prefix = "!") {
     );
   }
 
-  // Prevent duplicate event listeners if the module is loaded twice.
+  // Prevent duplicate event listeners if the module is initialized more than once.
   const seenClients =
     createGiveawayModule._clients ||
     (createGiveawayModule._clients = new WeakSet());
@@ -315,6 +319,7 @@ module.exports = function createGiveawayModule(client, db, prefix = "!") {
     const guildId = message.guild.id;
     const userId = message.author.id;
     const k = activityKey(guildId, userId);
+
     const data = (await db.get(k)) || {
       total: 0,
       days: {},
@@ -323,13 +328,14 @@ module.exports = function createGiveawayModule(client, db, prefix = "!") {
     const today = manilaDay();
 
     data.total = (Number(data.total) || 0) + 1;
+
     if (!data.days || typeof data.days !== "object") {
       data.days = {};
     }
 
     data.days[today] = (Number(data.days[today]) || 0) + 1;
 
-    const cutoff = new Date(Date.now() - 366 * DAY).toISOString().slice(0, 10);
+    const cutoff = manilaDayOffset(366);
 
     for (const date of Object.keys(data.days)) {
       if (date < cutoff) delete data.days[date];
@@ -345,30 +351,29 @@ module.exports = function createGiveawayModule(client, db, prefix = "!") {
       await db.set(usersKey, users);
     }
 
-    // A keyword can be credited once per Manila calendar day,
-    // and only during the configured hour window.
+    // Keyword credit is optional and never part of giveaway eligibility.
     const settings = await getKeywordSettings(guildId);
     const parts = manilaParts();
     const currentHour = Number(parts.hour);
     const content = String(message.content || "").toLowerCase();
+    const phrase = String(settings.phrase || "")
+      .trim()
+      .toLowerCase();
 
     const withinWindow =
       currentHour >= settings.startHour && currentHour < settings.endHour;
 
     if (
       settings.enabled &&
-      settings.phrase &&
+      phrase &&
       withinWindow &&
-      content.includes(settings.phrase.toLowerCase())
+      content.includes(phrase)
     ) {
       const keywordData = await getKeywordData(guildId, userId);
 
       // Do not credit the same member twice on the same day.
       if (keywordData.lastDay !== today) {
-        const [year, month, day] = today.split("-").map(Number);
-        const yesterday = new Date(Date.UTC(year, month - 1, day - 1))
-          .toISOString()
-          .slice(0, 10);
+        const yesterday = manilaDayOffset(1);
 
         keywordData.streak =
           keywordData.lastDay === yesterday
@@ -398,7 +403,9 @@ module.exports = function createGiveawayModule(client, db, prefix = "!") {
       };
     }
 
-    const req = giveaway.requirements;
+    const req = giveaway.requirements || {};
+    const messageReq = req.messages || { count: 0, days: 7 };
+    const activeDaysReq = req.activeDays || { count: 0, within: 7 };
 
     if (req.roleId && !member.roles.cache.has(req.roleId)) {
       return {
@@ -412,12 +419,8 @@ module.exports = function createGiveawayModule(client, db, prefix = "!") {
       days: {},
     };
 
-    const now = Date.now();
-
-    if (req.messages.count > 0) {
-      const cutoff = new Date(now - req.messages.days * DAY)
-        .toISOString()
-        .slice(0, 10);
+    if (Number(messageReq.count) > 0) {
+      const cutoff = manilaDayOffset(messageReq.days);
 
       const count = Object.entries(data.days || {}).reduce(
         (sum, [date, value]) =>
@@ -425,33 +428,34 @@ module.exports = function createGiveawayModule(client, db, prefix = "!") {
         0,
       );
 
-      if (count < req.messages.count) {
+      if (count < messageReq.count) {
         return {
           ok: false,
-          reason: `You need **${req.messages.count} messages** within the last ${req.messages.days} day(s). Your recorded count is **${count}**.`,
+          reason: `You need **${messageReq.count} messages** within the last ${messageReq.days} day(s). Your recorded count is **${count}**.`,
         };
       }
     }
 
-    if (req.activeDays.count > 0) {
-      const cutoff = new Date(now - req.activeDays.within * DAY)
-        .toISOString()
-        .slice(0, 10);
+    if (Number(activeDaysReq.count) > 0) {
+      const cutoff = manilaDayOffset(activeDaysReq.within);
 
       const count = Object.entries(data.days || {}).filter(
         ([date, value]) => date >= cutoff && Number(value) > 0,
       ).length;
 
-      if (count < req.activeDays.count) {
+      if (count < activeDaysReq.count) {
         return {
           ok: false,
-          reason: `You need to be active on **${req.activeDays.count} different days** within ${req.activeDays.within} day(s). Your recorded active days: **${count}**.`,
+          reason: `You need to be active on **${activeDaysReq.count} different days** within ${activeDaysReq.within} day(s). Your recorded active days: **${count}**.`,
         };
       }
     }
 
+    // Intentionally no keyword check here.
+    // Members do not need keyword credit to enter or win.
     return { ok: true };
   }
+
   async function sendProgress(message) {
     const guildId = message.guild.id;
     const userId = message.author.id;
@@ -467,16 +471,42 @@ module.exports = function createGiveawayModule(client, db, prefix = "!") {
     const keyword = await getKeywordData(guildId, userId);
     const giveaway = await getGiveaway(guildId);
 
-    const requiredMessages = giveaway?.requirements?.messages?.count || 0;
+    const messageReq = giveaway?.requirements?.messages || {
+      count: 0,
+      days: 7,
+    };
+
+    const requiredMessages = Number(messageReq.count) || 0;
+    const lookbackDays = Number(messageReq.days) || 7;
+    const cutoff = manilaDayOffset(lookbackDays);
+
+    const recentMessages = Object.entries(activity.days || {})
+      .filter(([date]) => date >= cutoff)
+      .reduce((sum, [, count]) => sum + Number(count || 0), 0);
+
+    const activityOk = !requiredMessages || recentMessages >= requiredMessages;
+
+    const activeDaysReq = giveaway?.requirements?.activeDays || {
+      count: 0,
+      within: 7,
+    };
+
+    const requiredActiveDays = Number(activeDaysReq.count) || 0;
+    const activeDaysWindow = Number(activeDaysReq.within) || 7;
+    const activeCutoff = manilaDayOffset(activeDaysWindow);
+
+    const recentActiveDays = Object.entries(activity.days || {}).filter(
+      ([date, count]) => date >= activeCutoff && Number(count) > 0,
+    ).length;
+
+    const activeDaysOk =
+      !requiredActiveDays || recentActiveDays >= requiredActiveDays;
 
     const roleId = giveaway?.requirements?.roleId;
 
     const member = await message.guild.members.fetch(userId).catch(() => null);
 
     const roleOk = !roleId || Boolean(member?.roles.cache.has(roleId));
-
-    const activityOk = !requiredMessages || daily >= requiredMessages;
-
     const keywordCreditedToday = keyword.lastDay === today;
 
     const lastCredited = keyword.lastCreditedAt
@@ -487,18 +517,27 @@ module.exports = function createGiveawayModule(client, db, prefix = "!") {
         })}`
       : "Never";
 
-    const overall = roleOk && activityOk;
+    const overall = roleOk && activityOk && activeDaysOk;
 
     const lines = [
       `**Daily Activity — ${today} (Philippine time)**`,
-      `${progressBar(daily, requiredMessages || 1)} **${daily}${
-        requiredMessages ? `/${requiredMessages}` : ""
-      } messages**${
-        requiredMessages ? "" : " (no message requirement configured)"
-      }`,
+      `${
+        requiredMessages
+          ? progressBar(recentMessages, requiredMessages)
+          : progressBar(daily, Math.max(daily, 1))
+      } **${
+        requiredMessages
+          ? `${recentMessages}/${requiredMessages} messages in the last ${lookbackDays} day(s)`
+          : `${daily} messages today (no message requirement configured)`
+      }**`,
       "",
       `**Required Role:** ${roleOk ? "✅" : "❌"} ${
         roleId ? `<@&${roleId}>` : "No role required"
+      }`,
+      `**Active days:** ${activeDaysOk ? "✅" : "❌"} ${
+        requiredActiveDays
+          ? `${recentActiveDays}/${requiredActiveDays} in the last ${activeDaysWindow} day(s)`
+          : "No active-day requirement configured"
       }`,
       "",
       `**Keyword:** \`${safeText(settings.phrase)}\``,
@@ -511,12 +550,15 @@ module.exports = function createGiveawayModule(client, db, prefix = "!") {
         settings.startHour,
       )} to just before ${hourLabel(settings.endHour)}, Manila time`,
       "",
-      "**Giveaway progress indicators:**",
-      `Activity: ${activityOk ? "✅" : "❌"}`,
+      "**Giveaway eligibility checks:**",
+      `Message activity: ${activityOk ? "✅" : "❌"}`,
       `Required role: ${roleOk ? "✅" : "❌"}`,
-      `Keyword credited today: ${keywordCreditedToday ? "✅" : "❌"}`,
-      `**Overall giveaway checks:** ${overall ? "✅" : "❌"}`,
-      "_The keyword is a progress indicator only. It does not block giveaway entry unless you add it to the eligibility rules._",
+      `Active days: ${activeDaysOk ? "✅" : "❌"}`,
+      `**Overall eligibility checks: ${
+        overall ? "✅ Passed" : "❌ Not yet eligible"
+      }**`,
+      "_Keyword credit is optional. You can enter the giveaway without it if you meet the configured role and activity requirements._",
+      "_If no giveaway exists, activity requirements are treated as disabled._",
     ];
 
     return message.reply(lines.join("\n"));
@@ -565,7 +607,7 @@ module.exports = function createGiveawayModule(client, db, prefix = "!") {
       .fetch(giveaway.channelId)
       .catch(() => null);
 
-    if (!channel?.isTextBased()) {
+    if (!channel?.isTextBased() || !channel.messages) {
       throw new Error("Giveaway channel is missing or is not a text channel.");
     }
 
@@ -610,6 +652,7 @@ module.exports = function createGiveawayModule(client, db, prefix = "!") {
 
     giveaway.status = "active";
     giveaway.entries = [];
+    giveaway.winners = [];
     giveaway.hostId = giveaway.hostId || guild.client.user.id;
 
     await saveGiveaway(guild.id, giveaway);
@@ -619,7 +662,11 @@ module.exports = function createGiveawayModule(client, db, prefix = "!") {
   async function finish(guild, giveaway, reroll = false) {
     const candidates = [];
 
+    const previousWinners = new Set(reroll ? giveaway.winners || [] : []);
+
     for (const userId of giveaway.entries || []) {
+      if (previousWinners.has(userId)) continue;
+
       const result = await eligibility(guild, userId, giveaway);
 
       if (result.ok) candidates.push(userId);
@@ -633,12 +680,14 @@ module.exports = function createGiveawayModule(client, db, prefix = "!") {
 
     while (winners.length < count && candidates.length) {
       const index = Math.floor(Math.random() * candidates.length);
-
       winners.push(candidates.splice(index, 1)[0]);
     }
 
     giveaway.status = "ended";
-    giveaway.winners = winners;
+
+    giveaway.winners = reroll
+      ? [...(giveaway.winners || []), ...winners]
+      : winners;
 
     await saveGiveaway(guild.id, giveaway);
 
@@ -649,9 +698,13 @@ module.exports = function createGiveawayModule(client, db, prefix = "!") {
     if (channel?.isTextBased()) {
       await channel.send(
         winners.length
-          ? `🎉 Giveaway ended! Congratulations ${winners
-              .map((id) => `<@${id}>`)
-              .join(", ")}! Prize: **${safeText(giveaway.prize)}**.`
+          ? reroll
+            ? `🎉 Replacement winner: ${winners
+                .map((id) => `<@${id}>`)
+                .join(", ")}! Prize: **${safeText(giveaway.prize)}**.`
+            : `🎉 Giveaway ended! Congratulations ${winners
+                .map((id) => `<@${id}>`)
+                .join(", ")}! Prize: **${safeText(giveaway.prize)}**.`
           : `The giveaway for **${safeText(
               giveaway.prize,
             )}** ended, but no eligible entries remained.`,
@@ -665,7 +718,7 @@ module.exports = function createGiveawayModule(client, db, prefix = "!") {
 
   async function respond(interaction, content, ephemeral = true) {
     const payload = {
-      content,
+      content: String(content ?? ""),
       flags: ephemeral ? MessageFlags.Ephemeral : undefined,
     };
 
@@ -677,6 +730,10 @@ module.exports = function createGiveawayModule(client, db, prefix = "!") {
   }
 
   async function runAction(guild, userId, action, args, reply) {
+    if (!guild) {
+      return reply("This command must be used inside a server.");
+    }
+
     if (
       action !== "status" &&
       !hasManagePermission(await guild.members.fetch(userId).catch(() => null))
@@ -738,11 +795,15 @@ module.exports = function createGiveawayModule(client, db, prefix = "!") {
       return reply("Create a draft first with `!giveaway create`.");
     }
 
-    if (action === "prize") giveaway.prize = args.text;
-    else if (action === "channel") giveaway.channelId = args.channelId;
-    else if (action === "ends") giveaway.endsAt = args.endsAt;
-    else if (action === "winners") giveaway.winnerCount = args.count;
-    else if (action === "requirement-messages") {
+    if (action === "prize") {
+      giveaway.prize = args.text;
+    } else if (action === "channel") {
+      giveaway.channelId = args.channelId;
+    } else if (action === "ends") {
+      giveaway.endsAt = args.endsAt;
+    } else if (action === "winners") {
+      giveaway.winnerCount = args.count;
+    } else if (action === "requirement-messages") {
       giveaway.requirements.messages = {
         count: args.count,
         days: args.days,
@@ -780,11 +841,7 @@ module.exports = function createGiveawayModule(client, db, prefix = "!") {
         return reply("End the giveaway before rerolling.");
       }
 
-      const result = await finish(
-        guild,
-        { ...giveaway, status: "active" },
-        true,
-      );
+      const result = await finish(guild, giveaway, true);
 
       return reply(
         result.winners.length
@@ -852,22 +909,40 @@ module.exports = function createGiveawayModule(client, db, prefix = "!") {
       args.roleId = interaction.options.getRole("role")?.id || null;
     }
 
-    await runAction(
-      interaction.guild,
-      interaction.user.id,
-      sub,
-      args,
-      async (value) => {
-        if (value && typeof value === "object" && value.embeds) {
-          return interaction.reply({
-            ...value,
-            flags: MessageFlags.Ephemeral,
-          });
-        }
+    try {
+      await runAction(
+        interaction.guild,
+        interaction.user.id,
+        sub,
+        args,
+        async (value) => {
+          if (value && typeof value === "object" && value.embeds) {
+            if (interaction.deferred || interaction.replied) {
+              return interaction.followUp({
+                ...value,
+                flags: MessageFlags.Ephemeral,
+              });
+            }
 
-        return respond(interaction, value);
-      },
-    );
+            return interaction.reply({
+              ...value,
+              flags: MessageFlags.Ephemeral,
+            });
+          }
+
+          return respond(interaction, value);
+        },
+      );
+    } catch (error) {
+      console.error("[Giveaway] Slash command failed:", error);
+
+      if (!interaction.replied && !interaction.deferred) {
+        await respond(
+          interaction,
+          "The giveaway command failed. Check the bot logs.",
+        );
+      }
+    }
   }
 
   async function handlePrefixCommand(message) {
@@ -880,11 +955,14 @@ module.exports = function createGiveawayModule(client, db, prefix = "!") {
     }
 
     const input = message.content.slice(prefix.length).trim();
+
+    if (!input) return false;
+
     const [root, action, ...rest] = input.split(/\s+/);
 
     if (root?.toLowerCase() !== "giveaway") return false;
 
-    // Public member commands
+    // Public member commands.
     if (action?.toLowerCase() === "progress") {
       await sendProgress(message);
       return true;
@@ -895,7 +973,7 @@ module.exports = function createGiveawayModule(client, db, prefix = "!") {
       return true;
     }
 
-    // Keyword settings
+    // Keyword settings. These affect tracking only, not eligibility.
     if (action?.toLowerCase() === "keyword") {
       const sub = (rest[0] || "status").toLowerCase();
 
@@ -908,6 +986,7 @@ module.exports = function createGiveawayModule(client, db, prefix = "!") {
             `Credit window: **${hourLabel(
               cfg.startHour,
             )} to just before ${hourLabel(cfg.endHour)} Manila time**\n` +
+            `Keyword credit is optional and does not affect giveaway eligibility.\n` +
             `Use \`${prefix}giveaway keyword set <phrase> [startHour] [endHour]\` or \`${prefix}giveaway keyword off/on\`.`,
         );
 
@@ -930,7 +1009,7 @@ module.exports = function createGiveawayModule(client, db, prefix = "!") {
         await message.reply(
           `Keyword crediting is now **${
             cfg.enabled ? "enabled" : "disabled"
-          }**.`,
+          }**. This does not change giveaway eligibility.`,
         );
 
         return true;
@@ -948,10 +1027,9 @@ module.exports = function createGiveawayModule(client, db, prefix = "!") {
         const hasHours = raw.length >= 3;
 
         const startRaw = hasHours ? raw[raw.length - 2] : "1";
-
         const endRaw = hasHours ? raw[raw.length - 1] : "12";
 
-        const phrase = hasHours ? raw.slice(0, -2).join(" ") : raw.join(" ");
+        const phrase = (hasHours ? raw.slice(0, -2) : raw).join(" ");
 
         const startHour = Number(startRaw);
         const endHour = Number(endRaw);
@@ -984,7 +1062,9 @@ module.exports = function createGiveawayModule(client, db, prefix = "!") {
         await message.reply(
           `Keyword set to **${safeText(phrase)}**. It can be credited from **${hourLabel(
             startHour,
-          )} until just before ${hourLabel(endHour)}**, Manila time.`,
+          )} until just before ${hourLabel(
+            endHour,
+          )}**, Manila time. Keyword credit is optional for giveaways.`,
         );
 
         return true;
@@ -1083,19 +1163,25 @@ module.exports = function createGiveawayModule(client, db, prefix = "!") {
       return true;
     }
 
-    await runAction(
-      message.guild,
-      message.author.id,
-      action,
-      args,
-      async (value) => {
-        if (value && typeof value === "object" && value.embeds) {
-          return message.reply(value);
-        }
+    try {
+      await runAction(
+        message.guild,
+        message.author.id,
+        action,
+        args,
+        async (value) => {
+          if (value && typeof value === "object" && value.embeds) {
+            return message.reply(value);
+          }
 
-        return message.reply(String(value));
-      },
-    );
+          return message.reply(String(value));
+        },
+      );
+    } catch (error) {
+      console.error("[Giveaway] Prefix command failed:", error);
+
+      await message.reply("The giveaway command failed. Check the bot logs.");
+    }
 
     return true;
   }
@@ -1110,7 +1196,8 @@ module.exports = function createGiveawayModule(client, db, prefix = "!") {
     if (user.bot || reaction.emoji.name !== EMOJI) return;
 
     if (reaction.partial) {
-      await reaction.fetch().catch(() => null);
+      const fetched = await reaction.fetch().catch(() => null);
+      if (!fetched) return;
     }
 
     const message = reaction.message;
@@ -1157,6 +1244,7 @@ module.exports = function createGiveawayModule(client, db, prefix = "!") {
       return;
     }
 
+    // Eligibility checks do not include keyword credit.
     giveaway.entries = [...new Set([...(giveaway.entries || []), user.id])];
 
     await saveGiveaway(message.guild.id, giveaway);
@@ -1168,7 +1256,8 @@ module.exports = function createGiveawayModule(client, db, prefix = "!") {
     if (user.bot || reaction.emoji.name !== EMOJI) return;
 
     if (reaction.partial) {
-      await reaction.fetch().catch(() => null);
+      const fetched = await reaction.fetch().catch(() => null);
+      if (!fetched) return;
     }
 
     const message = reaction.message;
@@ -1187,16 +1276,18 @@ module.exports = function createGiveawayModule(client, db, prefix = "!") {
   // Automatically end giveaways after their deadline.
   const timer = setInterval(async () => {
     for (const guild of client.guilds.cache.values()) {
-      const giveaway = await getGiveaway(guild.id);
+      try {
+        const giveaway = await getGiveaway(guild.id);
 
-      if (
-        giveaway?.status === "active" &&
-        giveaway.endsAt &&
-        giveaway.endsAt <= Date.now()
-      ) {
-        await finish(guild, giveaway).catch((error) =>
-          console.error("[Giveaway] Auto-end failed:", error),
-        );
+        if (
+          giveaway?.status === "active" &&
+          giveaway.endsAt &&
+          giveaway.endsAt <= Date.now()
+        ) {
+          await finish(guild, giveaway);
+        }
+      } catch (error) {
+        console.error("[Giveaway] Auto-end failed:", error);
       }
     }
   }, 30_000);

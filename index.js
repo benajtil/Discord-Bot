@@ -431,6 +431,9 @@ const HELP_CATEGORIES = {
           "`!giveaway status` — Check giveaway status",
           "`!giveaway end` — End and select winner(s)",
           "`!giveaway end none` — End without selecting a winner",
+          "`!giveaway role @Role` — Require a role to enter",
+          "`!giveaway role off` — Remove the role requirement",
+          "`!giveaway role status` — Check the current role requirement",
         ].join("\n"),
       },
       {

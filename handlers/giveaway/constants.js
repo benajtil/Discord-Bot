@@ -1,0 +1,9 @@
+const DAY = 24 * 60 * 60 * 1000;
+const MAX_ACTIVITY_PERIOD = 30 * DAY;
+const ENTRY_EMOJI = '🎉';
+const COLOR = 0x8b5cf6;
+const TIME_ZONE = 'Asia/Manila';
+const DEFAULT_KEYWORD_START_MINUTE = 0;
+const DEFAULT_KEYWORD_END_MINUTE = 12 * 60;
+const endingGiveaways = new Set();
+module.exports = { DAY, MAX_ACTIVITY_PERIOD, ENTRY_EMOJI, COLOR, TIME_ZONE, DEFAULT_KEYWORD_START_MINUTE, DEFAULT_KEYWORD_END_MINUTE, endingGiveaways };

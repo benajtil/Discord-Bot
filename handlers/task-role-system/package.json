@@ -1,0 +1,16 @@
+{
+  "name": "ysabelle-task-role-system",
+  "version": "1.0.0",
+  "description": "Modular task and role progression system for a Discord.js v14 bot",
+  "main": "index.js",
+  "private": true,
+  "engines": {
+    "node": ">=18.17.0"
+  },
+  "peerDependencies": {
+    "discord.js": "^14.0.0"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.0.0"
+  }
+}

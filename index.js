@@ -38,9 +38,11 @@ const client = new Client({
     GatewayIntentBits.MessageContent,
   ],
 });
+
 const {
   registerEntertainment,
 } = require("./handlers/entertainment/meme-reactions");
+
 const registerMemory = require("./memory");
 const { registerAutoDelete } = require("./handlers/autodelete/autodelete");
 const { registerAutoShip } = require("./handlers/entertainment/autoship");
@@ -48,6 +50,8 @@ const { registerAutoReply } = require("./handlers/autoreply/autoreply");
 const { handleWarnCommand } = require("./handlers/moderation/warn");
 const { registerConfessions } = require("./handlers/entertainment/confessions");
 const createGiveawayModule = require("./handlers/giveaway");
+const createXpLevelStaff = require("./handlers/xp-level-staff");
+
 registerAutoShip(client);
 registerAutoDelete(client);
 registerMemory(client, db, PREFIX);
@@ -55,6 +59,7 @@ require("./farewell")(client, db, PREFIX, DEVELOPER_ID);
 registerAutoReply(client);
 registerConfessions(client);
 registerEntertainment(client);
+const xpLevelStaff = createXpLevelStaff(client);
 client.commands = new Collection();
 client.aliases = new Collection();
 
@@ -64,7 +69,14 @@ const COOLDOWN_SECONDS = 1;
 const fontDirectory = path.join(__dirname, "fonts");
 const vampireFont = path.join(fontDirectory, "Vampire Wars.ttf");
 const quicksandFont = path.join(fontDirectory, "Quicksand-SemiBold.ttf");
+
 const giveawayModule = createGiveawayModule(client, db, PREFIX);
+
+// Task and Role Progression System.
+// The handler must exist at ./handlers/task-role-system.
+const createTaskRoleSystem = require("./handlers/task-role-system");
+const taskRoleSystem = createTaskRoleSystem(client);
+
 // --------------------------------------------------
 // Fonts
 // --------------------------------------------------
@@ -93,10 +105,10 @@ function isValidHttpUrl(value) {
     return false;
   }
 }
+
 async function registerGiveawaySlashCommand() {
   try {
     const commandData = giveawayModule.slashCommand.toJSON();
-
     const existingCommands = await client.application.commands.fetch();
 
     const existing = existingCommands.find(
@@ -114,6 +126,95 @@ async function registerGiveawaySlashCommand() {
     console.error("[Giveaway] Slash command registration failed:", error);
   }
 }
+
+async function registerTaskRoleSlashCommands() {
+  try {
+    if (!taskRoleSystem) {
+      throw new Error(
+        "Task role system was not initialized. Check the module import.",
+      );
+    }
+
+    const commands = [
+      {
+        name: "tasks",
+        builder: taskRoleSystem.slashCommand,
+      },
+      {
+        name: "tasksetup",
+        builder: taskRoleSystem.setupSlashCommand,
+      },
+    ];
+
+    for (const item of commands) {
+      if (!item.builder || typeof item.builder.toJSON !== "function") {
+        throw new Error(
+          `The "${item.name}" command builder is missing. ` +
+            `Check handlers/task-role-system/index.js and its exports.`,
+        );
+      }
+    }
+
+    const existingCommands = await client.application.commands.fetch();
+
+    for (const item of commands) {
+      const commandData = item.builder.toJSON();
+
+      const existing = existingCommands.find(
+        (command) => command.name === commandData.name,
+      );
+
+      if (existing) {
+        await client.application.commands.edit(existing.id, commandData);
+      } else {
+        await client.application.commands.create(commandData);
+      }
+
+      console.log(`[Task System] Registered /${commandData.name}`);
+    }
+  } catch (error) {
+    console.error("[Task System] Slash command registration failed:", error);
+  }
+}
+// --------------------------------------------------
+// Register XP, Level & Staff slash commands
+// --------------------------------------------------
+
+async function registerXpLevelStaffSlashCommands() {
+  try {
+    if (!xpLevelStaff || !Array.isArray(xpLevelStaff.commands)) {
+      throw new Error("XP & Staff commands were not initialized.");
+    }
+
+    const existingCommands = await client.application.commands.fetch();
+
+    for (const builder of xpLevelStaff.commands) {
+      if (!builder || typeof builder.toJSON !== "function") {
+        console.error("[XP & Staff] Invalid slash-command builder.");
+        continue;
+      }
+
+      const commandData = builder.toJSON();
+
+      const existing = existingCommands.find(
+        (command) => command.name === commandData.name,
+      );
+
+      if (existing) {
+        await client.application.commands.edit(existing.id, commandData);
+      } else {
+        await client.application.commands.create(commandData);
+      }
+
+      console.log(`[XP & Staff] Registered /${commandData.name}`);
+    }
+
+    console.log("[XP & Staff] Slash-command registration complete.");
+  } catch (error) {
+    console.error("[XP & Staff] Slash-command registration failed:", error);
+  }
+}
+
 const backgroundFile = path.join(__dirname, "JSON", "link.json");
 let backgroundLinks = [];
 
@@ -547,7 +648,107 @@ const HELP_CATEGORIES = {
       },
     ],
   },
+  tasks: {
+    label: "Tasks & Contribution",
+    emoji: "📋",
+    description:
+      "Complete tasks, earn contribution points, submit proof, and manage server roles.",
+    fields: [
+      {
+        name: "Member Commands",
+        value: [
+          "`/tasks list` — View available tasks",
+          "`/tasks progress` — Check task and contribution progress",
+          "`/tasks submit` — Submit task proof for review",
+          "`/tasks roles` — View contribution role tiers",
+          "`/tasks stats` — View contribution statistics",
+        ].join("\n"),
+      },
+      {
+        name: "Task Management",
+        value: [
+          "`/tasksetup task-add` — Create a task",
+          "`/tasksetup task-edit` — Edit a task",
+          "`/tasksetup task-delete` — Delete a task",
+          "`/tasksetup task-list` — View configured tasks",
+          "`/tasksetup status` — View system settings",
+        ].join("\n"),
+      },
+      {
+        name: "Reviews & Role Management",
+        value: [
+          "`/tasks submissions` — View submitted task proof",
+          "`/tasks review` — Approve or reject a submission",
+          "`/tasks grant-role` — Grant an approval-based role",
+          "`/tasksetup review-channel` — Configure the review channel",
+          "`/tasksetup log-channel` — Configure the log channel",
+          "`/tasksetup reviewer-role` — Manage reviewer roles",
+          "`/tasksetup reset` — Reset a setting",
+        ].join("\n"),
+      },
+      {
+        name: "How It Works",
+        value: [
+          "• Complete tasks to earn contribution points.",
+          "• Some tasks can track activity automatically.",
+          "• Tasks requiring proof must be reviewed by staff.",
+          "• Contribution roles and chat XP levels are separate systems.",
+          "• Setup commands require the appropriate permissions.",
+        ].join("\n"),
+      },
+    ],
+  },
 
+  xpstaff: {
+    label: "XP, Levels & Staff",
+    emoji: "⭐",
+    description:
+      "Earn XP through chat activity, level up, and apply for staff when eligible.",
+    fields: [
+      {
+        name: "XP & Levels",
+        value: [
+          "`/level` — View your level and XP",
+          "`/xpleaderboard` — View the XP leaderboard",
+          "`/tasks progress` — Check task progress and contribution information",
+          "",
+          "**Default settings**",
+          "• 5 XP per qualifying message",
+          "• 60-second XP cooldown",
+          "• Level 5 required to apply for staff",
+        ].join("\n"),
+      },
+      {
+        name: "Staff Applications",
+        value: [
+          "`/staffapply` — Apply for staff if eligible",
+          "`/staffapplications` — View pending applications (authorized reviewers)",
+          "`/staffreview` — Approve or reject an application (authorized reviewers)",
+          "",
+          "Staff applications may require a reason and relevant experience.",
+          "Approval does not automatically grant staff permissions. An administrator must assign the staff role.",
+        ].join("\n"),
+      },
+      {
+        name: "XP & Staff Configuration",
+        value: [
+          "`/xpstaff settings` — Configure XP and staff eligibility",
+          "`/xpstaff status` — View XP and staff settings",
+          "",
+          "Administrators can configure XP per message, cooldown, minimum staff level, and the application channel.",
+        ].join("\n"),
+      },
+      {
+        name: "Important Information",
+        value: [
+          "• XP is earned separately from task contribution points.",
+          "• Repeated or very short messages may not qualify for XP.",
+          "• Reaching the required level makes you eligible to apply; it does not guarantee acceptance.",
+          "• Staff applications are reviewed by authorized members.",
+        ].join("\n"),
+      },
+    ],
+  },
   entertainment: {
     label: "Meme & Entertainment",
     emoji: "😂",
@@ -638,7 +839,7 @@ const HELP_CATEGORIES = {
   moderation: {
     label: "Moderation & Security",
     emoji: "🛡️",
-    description: "Moderation commands and access controls.",
+    description: "Moderation and access controls.",
     fields: [
       {
         name: "Moderation",
@@ -702,8 +903,9 @@ function buildHelpMenu(selectedCategory = "general") {
 
   return [new ActionRowBuilder().addComponents(menu)];
 }
+
 // --------------------------------------------------
-// Register /help without replacing other commands
+// Register /ysabelle-help without replacing other commands
 // --------------------------------------------------
 
 async function registerHelpCommand() {
@@ -713,7 +915,6 @@ async function registerHelpCommand() {
       .setDescription("Open Ysabelle's private command guide")
       .toJSON();
 
-    // Fetch existing global commands without deleting other commands.
     const existingCommands = await client.application.commands.fetch();
 
     const existingHelp = existingCommands.find(
@@ -722,15 +923,12 @@ async function registerHelpCommand() {
 
     if (existingHelp) {
       await client.application.commands.edit(existingHelp.id, helpData);
-
       console.log("Updated global command: /ysabelle-help");
     } else {
       const created = await client.application.commands.create(helpData);
-
       console.log(`Created global command: /${created.name}`);
     }
 
-    // Verify what is registered globally.
     const registeredCommands = await client.application.commands.fetch();
 
     console.log(
@@ -741,9 +939,8 @@ async function registerHelpCommand() {
     console.error("Failed to register /ysabelle-help:", error);
   }
 }
-
 // --------------------------------------------------
-// Slash commands
+// Slash commands and interactions
 // --------------------------------------------------
 
 client.on(Events.InteractionCreate, async (interaction) => {
@@ -769,9 +966,34 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
       return;
     }
+
     if (interaction.isChatInputCommand()) {
       if (interaction.commandName === "giveaway") {
         await giveawayModule.handleSlashCommand(interaction);
+        return;
+      }
+
+      if (interaction.commandName === "tasks") {
+        await taskRoleSystem.handleSlashCommand(interaction);
+        return;
+      }
+
+      if (interaction.commandName === "tasksetup") {
+        await taskRoleSystem.handleSetupSlashCommand(interaction);
+        return;
+      }
+      const xpStaffCommands = [
+        "help",
+        "level",
+        "xpleaderboard",
+        "staffapply",
+        "staffapplications",
+        "staffreview",
+        "xpstaff",
+      ];
+
+      if (xpStaffCommands.includes(interaction.commandName)) {
+        await xpLevelStaff.handleSlashCommand(interaction);
         return;
       }
 
@@ -796,12 +1018,18 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
   }
 });
+
 // --------------------------------------------------
 // Embed welcome event
 // --------------------------------------------------
 
 client.on(Events.GuildMemberAdd, async (member) => {
   try {
+    // Initialize the task system for the joining member.
+    await taskRoleSystem.handleMemberJoin(member).catch((error) => {
+      console.error("[Task System] Member initialization failed:", error);
+    });
+
     const channelId = await db.get(`welcome_${member.guild.id}`);
     if (!channelId) return;
 
@@ -889,20 +1117,67 @@ client.on(Events.GuildMemberAdd, async (member) => {
 });
 
 // --------------------------------------------------
-// Prefix commands
+// Prefix commands and task activity tracking
 // --------------------------------------------------
+
 
 client.on(Events.MessageCreate, async (message) => {
   if (message.author.bot || !message.guild) return;
-  if (!message.content.startsWith(PREFIX)) return;
 
-  const input = message.content.slice(PREFIX.length).trim();
-  if (!input) return;
+  // Track task activity.
+  try {
+    await taskRoleSystem.handleMessageCreate(message);
+  } catch (error) {
+    console.error("[Task System] Message tracking failed:", error);
+  }
 
-  const [rawCommand, ...args] = input.split(/\s+/);
+  const content = message.content.trim();
+
+  // Parse prefix commands.
+  const hasPrefix = content.startsWith(PREFIX);
+  const input = hasPrefix ? content.slice(PREFIX.length).trim() : "";
+
+  const [rawCommand = "", ...args] = input.split(/\s+/);
   const command = rawCommand.toLowerCase();
   const rest = input.slice(rawCommand.length).trim();
-  if (await giveawayModule.handlePrefix(message)) return;
+
+  // Handle !level before the regular prefix-command flow.
+  // This must be outside the non-prefix-message condition.
+  if (hasPrefix && command === "level") {
+    try {
+      await xpLevelStaff.handlePrefixCommand(message);
+    } catch (error) {
+      console.error("[XP & Staff] !level failed:", error);
+
+      await message
+        .reply("Unable to load your level right now. Please try again.")
+        .catch(() => {});
+    }
+    return;
+  }
+
+  // Track XP for regular messages only.
+  if (!hasPrefix) {
+    try {
+      await xpLevelStaff.handleMessageCreate(message);
+    } catch (error) {
+      console.error("[XP & Staff] Message tracking failed:", error);
+    }
+    return;
+  }
+
+  // Ignore messages containing only the prefix.
+  if (!input) return;
+
+  // Giveaway prefix commands.
+  try {
+    if (await giveawayModule.handlePrefix(message)) return;
+  } catch (error) {
+    console.error("[Giveaway] Prefix command failed:", error);
+    return;
+  }
+
+  // Help command.
   if (command === "help") {
     await message.delete().catch(() => {});
 
@@ -924,6 +1199,7 @@ client.on(Events.MessageCreate, async (message) => {
     return;
   }
 
+  // Command cooldown.
   const now = Date.now();
   const expiry = cooldowns.get(message.author.id);
 
@@ -933,7 +1209,10 @@ client.on(Events.MessageCreate, async (message) => {
       .catch(() => {});
   }
 
-  cooldowns.set(message.author.id, now + COOLDOWN_SECONDS * 1000);
+  cooldowns.set(
+    message.author.id,
+    now + COOLDOWN_SECONDS * 1000,
+  );
 
   setTimeout(() => {
     if (cooldowns.get(message.author.id) <= Date.now()) {
@@ -942,10 +1221,12 @@ client.on(Events.MessageCreate, async (message) => {
   }, COOLDOWN_SECONDS * 1000);
 
   try {
+    // Ping command.
     if (command === "ping") {
       return message.reply(`Pong! ${client.ws.ping} ms`);
     }
 
+    // Server information.
     if (command === "server") {
       const owner = await message.guild.fetchOwner();
 
@@ -966,6 +1247,7 @@ client.on(Events.MessageCreate, async (message) => {
       return message.reply({ embeds: [embed] });
     }
 
+    // User information.
     if (command === "userinfo") {
       const target =
         message.mentions.members.first() ||
@@ -973,7 +1255,9 @@ client.on(Events.MessageCreate, async (message) => {
           ? await message.guild.members.fetch(args[0]).catch(() => null)
           : message.member);
 
-      if (!target) return message.reply("I couldn't find that member.");
+      if (!target) {
+        return message.reply("I couldn't find that member.");
+      }
 
       const embed = new EmbedBuilder()
         .setTitle(`User Information • ${target.displayName}`)
@@ -990,7 +1274,11 @@ client.on(Events.MessageCreate, async (message) => {
             value: target.user.tag || target.user.username,
             inline: true,
           },
-          { name: "User ID", value: target.id, inline: true },
+          {
+            name: "User ID",
+            value: target.id,
+            inline: true,
+          },
           {
             name: "Joined server",
             value: target.joinedTimestamp
@@ -1008,8 +1296,10 @@ client.on(Events.MessageCreate, async (message) => {
       return message.reply({ embeds: [embed] });
     }
 
+    // Warning commands.
     if (await handleWarnCommand(message)) return;
 
+    // Welcome setup commands.
     const setupCommands = [
       "setwelcome",
       "setwelcomeimage",
@@ -1032,6 +1322,7 @@ client.on(Events.MessageCreate, async (message) => {
 
     const guildId = message.guild.id;
 
+    // Set welcome channel.
     if (command === "setwelcome" || command === "setwelcomeimage") {
       const channel =
         message.mentions.channels.first() ||
@@ -1053,10 +1344,13 @@ client.on(Events.MessageCreate, async (message) => {
       await db.set(key, channel.id);
 
       return message.reply(
-        `Saved ${command === "setwelcome" ? "embed" : "image-card"} welcome channel: ${channel}.`,
+        `Saved ${
+          command === "setwelcome" ? "embed" : "image-card"
+        } welcome channel: ${channel}.`,
       );
     }
 
+    // Set welcome description.
     if (command === "welcomedesc") {
       if (!rest) {
         return message.reply(
@@ -1074,9 +1368,15 @@ client.on(Events.MessageCreate, async (message) => {
       return message.reply("Welcome description saved.");
     }
 
-    if (command === "welcomethumbnail" || command === "welcomebanner") {
+    // Set welcome thumbnail or banner URL.
+    if (
+      command === "welcomethumbnail" ||
+      command === "welcomebanner"
+    ) {
       if (!isValidHttpUrl(args[0])) {
-        return message.reply("Please provide a valid HTTP or HTTPS image URL.");
+        return message.reply(
+          "Please provide a valid HTTP or HTTPS image URL.",
+        );
       }
 
       const key =
@@ -1087,11 +1387,17 @@ client.on(Events.MessageCreate, async (message) => {
       await db.set(key, args[0]);
 
       return message.reply(
-        `${command === "welcomethumbnail" ? "Thumbnail" : "Banner"} URL saved.`,
+        `${
+          command === "welcomethumbnail" ? "Thumbnail" : "Banner"
+        } URL saved.`,
       );
     }
 
-    if (command === "welcomeoff" || command === "welcomeimageoff") {
+    // Disable welcome messages.
+    if (
+      command === "welcomeoff" ||
+      command === "welcomeimageoff"
+    ) {
       const key =
         command === "welcomeoff"
           ? `welcome_${guildId}`
@@ -1100,17 +1406,26 @@ client.on(Events.MessageCreate, async (message) => {
       await db.delete(key);
 
       return message.reply(
-        `${command === "welcomeoff" ? "Embed" : "Image-card"} welcomes disabled.`,
+        `${
+          command === "welcomeoff" ? "Embed" : "Image-card"
+        } welcomes disabled.`,
       );
     }
 
+    // Test the welcome embed.
     if (command === "welcometest") {
-      const text =
+      const welcomeText =
         (await db.get(`desc_${guildId}`)) ||
         "Hey ?mention! Welcome to **?server**. You're member **#?rank**. Have fun!";
 
-      const description = replaceWelcomeVariables(text, message.member);
-      const thumbnailTemplate = await db.get(`thumbnail_${guildId}`);
+      const description = replaceWelcomeVariables(
+        welcomeText,
+        message.member,
+      );
+
+      const thumbnailTemplate = await db.get(
+        `thumbnail_${guildId}`,
+      );
       const bannerTemplate = await db.get(`image_${guildId}`);
 
       const thumbnail = thumbnailTemplate
@@ -1122,11 +1437,21 @@ client.on(Events.MessageCreate, async (message) => {
         : null;
 
       return message.channel.send({
-        embeds: [makeEmbed(description, message.member, thumbnail, banner)],
-        allowedMentions: { users: [message.author.id] },
+        embeds: [
+          makeEmbed(
+            description,
+            message.member,
+            thumbnail,
+            banner,
+          ),
+        ],
+        allowedMentions: {
+          users: [message.author.id],
+        },
       });
     }
 
+    // Test the welcome image card.
     if (command === "welcomeimagetest") {
       if (!backgroundLinks.length) {
         return message.reply(
@@ -1144,9 +1469,9 @@ client.on(Events.MessageCreate, async (message) => {
         avatar,
         displayName: message.member.displayName,
         memberCount: message.guild.memberCount,
-        joinedDate: moment(message.member.joinedAt || Date.now()).format(
-          "MMM D, YYYY",
-        ),
+        joinedDate: moment(
+          message.member.joinedAt || Date.now(),
+        ).format("MMM D, YYYY"),
         serverName: message.guild.name,
       });
 
@@ -1154,10 +1479,12 @@ client.on(Events.MessageCreate, async (message) => {
         name: "ysabelle-welcome-test.png",
       });
 
-      return message.channel.send({ files: [attachment] });
+      return message.channel.send({
+        files: [attachment],
+      });
     }
   } catch (error) {
-    console.error(`Command "${command}" failed:`, error);
+    console.error(`[Command: ${command}] Failed:`, error);
 
     return message
       .reply("Something went wrong. Check the terminal for the error.")
@@ -1195,9 +1522,13 @@ if (!process.env.DISCORD_TOKEN) {
 
 client.once("ready", async () => {
   console.log(`[Ysabelle] Logged in as ${client.user.tag}`);
+
   await registerGiveawaySlashCommand();
   await registerHelpCommand();
+  await registerTaskRoleSlashCommands();
+  await registerXpLevelStaffSlashCommands();
 });
+
 client.on("shardDisconnect", (event, shardId) => {
   console.error(
     `[Ysabelle] Disconnected: shard=${shardId}, code=${event.code}`,
@@ -1215,9 +1546,11 @@ client.on("shardResume", (shardId) => {
 client.on("shardError", (error, shardId) => {
   console.error(`[Ysabelle] Shard ${shardId} error:`, error);
 });
+
 client.on("error", (error) => {
   console.error("[Ysabelle] Discord client error:", error);
 });
+
 setInterval(() => {
   const shard = client.ws.shards.first();
 
@@ -1229,6 +1562,7 @@ setInterval(() => {
     uptime: process.uptime(),
   });
 }, 60_000);
+
 client.login(process.env.DISCORD_TOKEN).catch((error) => {
   console.error("[Ysabelle] Discord login failed:", error);
 });

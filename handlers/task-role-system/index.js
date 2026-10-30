@@ -383,6 +383,104 @@ function createTaskRoleSystem(client, options = {}) {
         .setName("task-list")
         .setDescription("List tasks configured for this server"),
     )
+    .addSubcommand((s) =>
+      s
+        .setName("role-add")
+        .setDescription("Add a contribution role tier")
+        .addStringOption((o) =>
+          o
+            .setName("name")
+            .setDescription("Name of the tier")
+            .setRequired(true)
+            .setMaxLength(100),
+        )
+        .addIntegerOption((o) =>
+          o
+            .setName("points")
+            .setDescription("Required contribution points")
+            .setRequired(true)
+            .setMinValue(0)
+            .setMaxValue(1000000),
+        )
+        .addStringOption((o) =>
+          o
+            .setName("role_id")
+            .setDescription("Discord role ID")
+            .setRequired(true)
+            .setMaxLength(25),
+        )
+        .addStringOption((o) =>
+          o
+            .setName("mode")
+            .setDescription("Automatic assignment or staff approval")
+            .setRequired(true)
+            .addChoices(
+              { name: "Automatic", value: "auto" },
+              { name: "Staff approval", value: "approval" },
+            ),
+        ),
+    )
+    .addSubcommand((s) =>
+      s
+        .setName("role-edit")
+        .setDescription("Edit an existing contribution role tier")
+        .addStringOption((o) =>
+          o
+            .setName("name")
+            .setDescription("Current tier name")
+            .setRequired(true)
+            .setMaxLength(100),
+        )
+        .addStringOption((o) =>
+          o
+            .setName("new_name")
+            .setDescription("New tier name")
+            .setRequired(false)
+            .setMaxLength(100),
+        )
+        .addIntegerOption((o) =>
+          o
+            .setName("points")
+            .setDescription("New required points")
+            .setRequired(false)
+            .setMinValue(0)
+            .setMaxValue(1000000),
+        )
+        .addStringOption((o) =>
+          o
+            .setName("role_id")
+            .setDescription("New Discord role ID")
+            .setRequired(false)
+            .setMaxLength(25),
+        )
+        .addStringOption((o) =>
+          o
+            .setName("mode")
+            .setDescription("Assignment mode")
+            .setRequired(false)
+            .addChoices(
+              { name: "Automatic", value: "auto" },
+              { name: "Staff approval", value: "approval" },
+            ),
+        ),
+    )
+    .addSubcommand((s) =>
+      s
+        .setName("role-delete")
+        .setDescription("Delete a contribution role tier")
+        .addStringOption((o) =>
+          o
+            .setName("name")
+            .setDescription("Tier name to delete")
+            .setRequired(true)
+            .setMaxLength(100),
+        ),
+    )
+    .addSubcommand((s) =>
+      s
+        .setName("role-list")
+        .setDescription("List configured contribution role tiers"),
+    )
     .setDMPermission(false);
 
   function getSetting(guildId, key) {
@@ -415,7 +513,22 @@ function createTaskRoleSystem(client, options = {}) {
   function saveTasks(guildId, tasks) {
     db.setSetting(guildId, "tasks_json", JSON.stringify(tasks));
   }
+  function getRoleTiers(guildId) {
+    const raw = db.getSetting(guildId, "role_tiers_json");
 
+    if (!raw) return config.roleTiers;
+
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : config.roleTiers;
+    } catch {
+      return config.roleTiers;
+    }
+  }
+
+  function saveRoleTiers(guildId, tiers) {
+    db.setSetting(guildId, "role_tiers_json", JSON.stringify(tiers));
+  }
   function periodKey(period) {
     const now = new Date();
     const date = new Date(
@@ -469,7 +582,7 @@ function createTaskRoleSystem(client, options = {}) {
 
   async function syncAutoRoles(guild, userId) {
     const points = db.getPoints(guild.id, userId);
-    for (const tier of config.roleTiers) {
+    for (const tier of getRoleTiers(guild.id)) {
       if (tier.mode !== "auto" || !tier.roleId || points < tier.points)
         continue;
       const assigned = await giveRole(
@@ -535,7 +648,7 @@ function createTaskRoleSystem(client, options = {}) {
     const points = db.getPoints(guildId, userId);
     const completed = db.countApproved(guildId, userId);
     const pending = db.countPending(guildId, userId);
-    const next = config.roleTiers
+    const next = getRoleTiers(guildId)
       .filter((t) => t.mode === "auto")
       .sort((a, b) => a.points - b.points)
       .find((t) => points < t.points);
@@ -728,7 +841,228 @@ function createTaskRoleSystem(client, options = {}) {
 
     const sub = interaction.options.getSubcommand();
     const guildId = interaction.guildId;
+    // List configured role tiers.
+    if (sub === "role-list") {
+      const tiers = getRoleTiers(guildId);
 
+      const lines = tiers.map((tier) => {
+        const role = tier.roleId
+          ? `<@&${tier.roleId}> (\`${tier.roleId}\`)`
+          : "Role ID not configured";
+
+        const assignment =
+          tier.mode === "approval"
+            ? "Staff approval required"
+            : "Automatic assignment";
+
+        return (
+          `**${tier.name}**\n` +
+          `Points: ${tier.points} · ${assignment}\n` +
+          `Role: ${role}`
+        );
+      });
+
+      return interaction.reply({
+        content: lines.length
+          ? lines.join("\n\n").slice(0, 1900)
+          : "No role tiers configured.",
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+
+    // Add a role tier.
+    if (sub === "role-add") {
+      const tiers = getRoleTiers(guildId);
+
+      const name = interaction.options.getString("name", true).trim();
+      const points = interaction.options.getInteger("points", true);
+      const roleId = interaction.options.getString("role_id", true).trim();
+      const mode = interaction.options.getString("mode", true);
+
+      if (!/^\d{17,20}$/.test(roleId)) {
+        return interaction.reply({
+          content: "That doesn't look like a valid Discord role ID.",
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
+      const role = await interaction.guild.roles
+        .fetch(roleId)
+        .catch(() => null);
+
+      if (!role) {
+        return interaction.reply({
+          content: "I couldn't find that role in this server. Check its ID.",
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
+      if (
+        tiers.some((tier) => tier.name.toLowerCase() === name.toLowerCase())
+      ) {
+        return interaction.reply({
+          content: `A tier named **${name}** already exists.`,
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
+      if (tiers.some((tier) => tier.roleId === roleId)) {
+        return interaction.reply({
+          content: "That Discord role is already assigned to another tier.",
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
+      tiers.push({ name, points, roleId, mode });
+      saveRoleTiers(guildId, tiers);
+
+      await log(
+        interaction.guild,
+        `🆕 <@${interaction.user.id}> added role tier **${name}** with ${points} points and role <@&${roleId}> (${mode}).`,
+      );
+
+      return interaction.reply({
+        content:
+          `Created role tier **${name}**.\n` +
+          `Required points: **${points}**\n` +
+          `Discord role: <@&${roleId}>\n` +
+          `Assignment: **${mode === "approval" ? "Staff approval" : "Automatic"}**`,
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+
+    // Edit an existing role tier.
+    if (sub === "role-edit") {
+      const tiers = getRoleTiers(guildId);
+      const currentName = interaction.options.getString("name", true).trim();
+
+      const tier = tiers.find(
+        (item) => item.name.toLowerCase() === currentName.toLowerCase(),
+      );
+
+      if (!tier) {
+        return interaction.reply({
+          content: `Couldn't find **${currentName}**. Use \`/tasksetup role-list\`.`,
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
+      const newName = interaction.options.getString("new_name");
+      const points = interaction.options.getInteger("points");
+      const roleIdInput = interaction.options.getString("role_id");
+      const mode = interaction.options.getString("mode");
+
+      if (
+        newName === null &&
+        points === null &&
+        roleIdInput === null &&
+        mode === null
+      ) {
+        return interaction.reply({
+          content: "Provide at least one field to update.",
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
+      if (
+        newName &&
+        tiers.some(
+          (item) =>
+            item !== tier &&
+            item.name.toLowerCase() === newName.trim().toLowerCase(),
+        )
+      ) {
+        return interaction.reply({
+          content: `Another tier named **${newName}** already exists.`,
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
+      if (roleIdInput !== null) {
+        const roleId = roleIdInput.trim();
+
+        if (!/^\d{17,20}$/.test(roleId)) {
+          return interaction.reply({
+            content: "That doesn't look like a valid Discord role ID.",
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+
+        const role = await interaction.guild.roles
+          .fetch(roleId)
+          .catch(() => null);
+
+        if (!role) {
+          return interaction.reply({
+            content: "I couldn't find that role in this server.",
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+
+        if (tiers.some((item) => item !== tier && item.roleId === roleId)) {
+          return interaction.reply({
+            content: "That role is already assigned to another tier.",
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+
+        tier.roleId = roleId;
+      }
+
+      if (newName !== null && newName.trim()) tier.name = newName.trim();
+      if (points !== null) tier.points = points;
+      if (mode !== null) tier.mode = mode;
+
+      saveRoleTiers(guildId, tiers);
+
+      await log(
+        interaction.guild,
+        `✏️ <@${interaction.user.id}> updated role tier **${tier.name}**.`,
+      );
+
+      return interaction.reply({
+        content:
+          `Updated **${tier.name}**.\n` +
+          `Points: **${tier.points}**\n` +
+          `Role: ${tier.roleId ? `<@&${tier.roleId}>` : "Not configured"}\n` +
+          `Assignment: **${tier.mode === "approval" ? "Staff approval" : "Automatic"}**`,
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+
+    // Delete a role tier.
+    if (sub === "role-delete") {
+      const tiers = getRoleTiers(guildId);
+      const name = interaction.options.getString("name", true).trim();
+
+      const tier = tiers.find(
+        (item) => item.name.toLowerCase() === name.toLowerCase(),
+      );
+
+      if (!tier) {
+        return interaction.reply({
+          content: `Couldn't find **${name}**.`,
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
+      saveRoleTiers(
+        guildId,
+        tiers.filter((item) => item !== tier),
+      );
+
+      await log(
+        interaction.guild,
+        `🗑️ <@${interaction.user.id}> deleted role tier **${tier.name}**.`,
+      );
+
+      return interaction.reply({
+        content:
+          `Deleted role tier **${tier.name}** from the configuration. ` +
+          "This does not remove that role from members who already have it.",
+        flags: MessageFlags.Ephemeral,
+      });
+    }
     if (sub === "task-list") {
       const tasks = getTasks(guildId);
       const lines = tasks.map(
@@ -1037,7 +1371,7 @@ function createTaskRoleSystem(client, options = {}) {
       });
     }
     if (sub === "roles") {
-      const text = config.roleTiers
+      const text = getRoleTiers(interaction.guildId)
         .map(
           (r) =>
             `**${r.name}** — ${r.mode === "approval" ? "admin approval required" : `${r.points} points`}${r.roleId ? ` · <@&${r.roleId}>` : " · role ID not configured"}`,
@@ -1070,7 +1404,7 @@ function createTaskRoleSystem(client, options = {}) {
       }
       const user = interaction.options.getUser("member");
       const tierName = interaction.options.getString("tier").toLowerCase();
-      const tier = config.roleTiers.find(
+      const tier = getRoleTiers(interaction.guildId).find(
         (r) => r.mode === "approval" && r.name.toLowerCase() === tierName,
       );
       if (!tier)

@@ -3,6 +3,15 @@ require("dotenv").config();
 const fs = require("node:fs");
 const http = require("node:http");
 const path = require("node:path");
+const { Agent, setGlobalDispatcher } = require("undici");
+
+setGlobalDispatcher(
+  new Agent({
+    connect: {
+      timeout: 30000,
+    },
+  }),
+);
 
 const {
   Client,
@@ -36,6 +45,7 @@ const client = new Client({
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildVoiceStates,
   ],
 });
 
@@ -51,7 +61,7 @@ const { handleWarnCommand } = require("./handlers/moderation/warn");
 const { registerConfessions } = require("./handlers/entertainment/confessions");
 const createGiveawayModule = require("./handlers/giveaway");
 const createXpLevelStaff = require("./handlers/xp-level-staff");
-
+const funGames = require("./handlers/entertainment/fun-games");
 registerAutoShip(client);
 registerAutoDelete(client);
 registerMemory(client, db, PREFIX);
@@ -105,7 +115,54 @@ function isValidHttpUrl(value) {
     return false;
   }
 }
+async function registerWithRetry(registerFunction, name, attempts = 3) {
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      console.log(`[${name}] Registration attempt ${attempt}/${attempts}...`);
 
+      await registerFunction();
+
+      console.log(`[${name}] Registration completed.`);
+      return true;
+    } catch (error) {
+      console.error(
+        `[${name}] Registration attempt ${attempt}/${attempts} failed:`,
+        error,
+      );
+
+      if (attempt === attempts) {
+        console.error(
+          `[${name}] Registration failed after ${attempts} attempts.`,
+        );
+        return false;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+    }
+  }
+
+  return false;
+}
+async function registerFunGamesSlashCommand() {
+  try {
+    const commands = client.application.commands;
+    const existingCommands = await commands.fetch();
+
+    const existingFunCommand = existingCommands.find(
+      (cmd) => cmd.name === "fun",
+    );
+
+    if (existingFunCommand) {
+      await existingFunCommand.edit(funGames.command.toJSON());
+      console.log("[Ysabelle] Updated /fun command.");
+    } else {
+      await commands.create(funGames.command.toJSON());
+      console.log("[Ysabelle] Registered /fun command.");
+    }
+  } catch (error) {
+    console.error("[Ysabelle] Failed to register /fun command:", error);
+  }
+}
 async function registerGiveawaySlashCommand() {
   try {
     const commandData = giveawayModule.slashCommand.toJSON();
@@ -181,38 +238,67 @@ async function registerTaskRoleSlashCommands() {
 // --------------------------------------------------
 
 async function registerXpLevelStaffSlashCommands() {
-  try {
-    if (!xpLevelStaff || !Array.isArray(xpLevelStaff.commands)) {
-      throw new Error("XP & Staff commands were not initialized.");
-    }
-
-    const existingCommands = await client.application.commands.fetch();
-
-    for (const builder of xpLevelStaff.commands) {
-      if (!builder || typeof builder.toJSON !== "function") {
-        console.error("[XP & Staff] Invalid slash-command builder.");
-        continue;
-      }
-
-      const commandData = builder.toJSON();
-
-      const existing = existingCommands.find(
-        (command) => command.name === commandData.name,
-      );
-
-      if (existing) {
-        await client.application.commands.edit(existing.id, commandData);
-      } else {
-        await client.application.commands.create(commandData);
-      }
-
-      console.log(`[XP & Staff] Registered /${commandData.name}`);
-    }
-
-    console.log("[XP & Staff] Slash-command registration complete.");
-  } catch (error) {
-    console.error("[XP & Staff] Slash-command registration failed:", error);
+  if (!xpLevelStaff || !Array.isArray(xpLevelStaff.commands)) {
+    throw new Error("XP & Staff commands were not initialized.");
   }
+
+  const maxAttempts = 3;
+  const commands = client.application.commands;
+
+  for (const builder of xpLevelStaff.commands) {
+    if (!builder || typeof builder.toJSON !== "function") {
+      console.error("[XP & Staff] Invalid command builder. Skipping.");
+      continue;
+    }
+
+    const commandData = builder.toJSON();
+    let registered = false;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        console.log(
+          `[XP & Staff] Registering /${commandData.name} (${attempt}/${maxAttempts})...`,
+        );
+
+        // Refresh the remote commands before deciding whether to create or edit.
+        const existingCommands = await commands.fetch();
+
+        const existing = existingCommands.find(
+          (command) => command.name === commandData.name,
+        );
+
+        if (existing) {
+          await commands.edit(existing.id, commandData);
+        } else {
+          await commands.create(commandData);
+        }
+
+        console.log(`[XP & Staff] Registered /${commandData.name}`);
+        registered = true;
+        break;
+      } catch (error) {
+        console.error(
+          `[XP & Staff] /${commandData.name} attempt ${attempt}/${maxAttempts} failed:`,
+          error,
+        );
+
+        if (attempt < maxAttempts) {
+          await new Promise((resolve) => setTimeout(resolve, 5000));
+        }
+      }
+    }
+
+    if (!registered) {
+      console.error(
+        `[XP & Staff] Could not register /${commandData.name} after ${maxAttempts} attempts.`,
+      );
+    }
+
+    // Small pause between commands to avoid sending requests too quickly.
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+  }
+
+  console.log("[XP & Staff] Command registration process finished.");
 }
 
 const backgroundFile = path.join(__dirname, "JSON", "link.json");
@@ -966,7 +1052,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
       return;
     }
-
+    if (interaction.commandName === "fun") {
+      await funGames.handleSlashCommand(interaction, db);
+      return;
+    }
     if (interaction.isChatInputCommand()) {
       if (interaction.commandName === "giveaway") {
         await giveawayModule.handleSlashCommand(interaction);
@@ -1120,7 +1209,6 @@ client.on(Events.GuildMemberAdd, async (member) => {
 // Prefix commands and task activity tracking
 // --------------------------------------------------
 
-
 client.on(Events.MessageCreate, async (message) => {
   if (message.author.bot || !message.guild) return;
 
@@ -1209,10 +1297,7 @@ client.on(Events.MessageCreate, async (message) => {
       .catch(() => {});
   }
 
-  cooldowns.set(
-    message.author.id,
-    now + COOLDOWN_SECONDS * 1000,
-  );
+  cooldowns.set(message.author.id, now + COOLDOWN_SECONDS * 1000);
 
   setTimeout(() => {
     if (cooldowns.get(message.author.id) <= Date.now()) {
@@ -1369,14 +1454,9 @@ client.on(Events.MessageCreate, async (message) => {
     }
 
     // Set welcome thumbnail or banner URL.
-    if (
-      command === "welcomethumbnail" ||
-      command === "welcomebanner"
-    ) {
+    if (command === "welcomethumbnail" || command === "welcomebanner") {
       if (!isValidHttpUrl(args[0])) {
-        return message.reply(
-          "Please provide a valid HTTP or HTTPS image URL.",
-        );
+        return message.reply("Please provide a valid HTTP or HTTPS image URL.");
       }
 
       const key =
@@ -1387,17 +1467,12 @@ client.on(Events.MessageCreate, async (message) => {
       await db.set(key, args[0]);
 
       return message.reply(
-        `${
-          command === "welcomethumbnail" ? "Thumbnail" : "Banner"
-        } URL saved.`,
+        `${command === "welcomethumbnail" ? "Thumbnail" : "Banner"} URL saved.`,
       );
     }
 
     // Disable welcome messages.
-    if (
-      command === "welcomeoff" ||
-      command === "welcomeimageoff"
-    ) {
+    if (command === "welcomeoff" || command === "welcomeimageoff") {
       const key =
         command === "welcomeoff"
           ? `welcome_${guildId}`
@@ -1418,14 +1493,9 @@ client.on(Events.MessageCreate, async (message) => {
         (await db.get(`desc_${guildId}`)) ||
         "Hey ?mention! Welcome to **?server**. You're member **#?rank**. Have fun!";
 
-      const description = replaceWelcomeVariables(
-        welcomeText,
-        message.member,
-      );
+      const description = replaceWelcomeVariables(welcomeText, message.member);
 
-      const thumbnailTemplate = await db.get(
-        `thumbnail_${guildId}`,
-      );
+      const thumbnailTemplate = await db.get(`thumbnail_${guildId}`);
       const bannerTemplate = await db.get(`image_${guildId}`);
 
       const thumbnail = thumbnailTemplate
@@ -1437,14 +1507,7 @@ client.on(Events.MessageCreate, async (message) => {
         : null;
 
       return message.channel.send({
-        embeds: [
-          makeEmbed(
-            description,
-            message.member,
-            thumbnail,
-            banner,
-          ),
-        ],
+        embeds: [makeEmbed(description, message.member, thumbnail, banner)],
         allowedMentions: {
           users: [message.author.id],
         },
@@ -1469,9 +1532,9 @@ client.on(Events.MessageCreate, async (message) => {
         avatar,
         displayName: message.member.displayName,
         memberCount: message.guild.memberCount,
-        joinedDate: moment(
-          message.member.joinedAt || Date.now(),
-        ).format("MMM D, YYYY"),
+        joinedDate: moment(message.member.joinedAt || Date.now()).format(
+          "MMM D, YYYY",
+        ),
         serverName: message.guild.name,
       });
 
@@ -1523,10 +1586,16 @@ if (!process.env.DISCORD_TOKEN) {
 client.once("ready", async () => {
   console.log(`[Ysabelle] Logged in as ${client.user.tag}`);
 
-  await registerGiveawaySlashCommand();
-  await registerHelpCommand();
-  await registerTaskRoleSlashCommands();
+  await registerWithRetry(registerFunGamesSlashCommand, "Fun Games");
+
+  await registerWithRetry(registerGiveawaySlashCommand, "Giveaway");
+
+  await registerWithRetry(registerHelpCommand, "Help");
+
+  await registerWithRetry(registerTaskRoleSlashCommands, "Task System");
+
   await registerXpLevelStaffSlashCommands();
+  console.log("[Ysabelle] Slash-command registration process finished.");
 });
 
 client.on("shardDisconnect", (event, shardId) => {

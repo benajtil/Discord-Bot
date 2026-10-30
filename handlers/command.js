@@ -12,7 +12,9 @@ module.exports = (client) => {
   const categories = readdirSync("./commands/");
 
   for (const dir of categories) {
-    const files = readdirSync(`./commands/${dir}/`).filter((f) => f.endsWith(".js"));
+    const files = readdirSync(`./commands/${dir}/`).filter((f) =>
+      f.endsWith(".js"),
+    );
 
     for (const file of files) {
       const command = require(`../commands/${dir}/${file}`);
@@ -25,7 +27,9 @@ module.exports = (client) => {
       }
 
       if (command.aliases && Array.isArray(command.aliases)) {
-        command.aliases.forEach((alias) => client.aliases.set(alias, command.name));
+        command.aliases.forEach((alias) =>
+          client.aliases.set(alias, command.name),
+        );
       }
     }
   }

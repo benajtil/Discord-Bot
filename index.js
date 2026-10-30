@@ -1079,6 +1079,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
         "staffapplications",
         "staffreview",
         "xpstaff",
+        "xpvoice",
+        "levelup-channel",
       ];
 
       if (xpStaffCommands.includes(interaction.commandName)) {

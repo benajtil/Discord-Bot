@@ -404,10 +404,10 @@ function createTaskRoleSystem(client, options = {}) {
         )
         .addStringOption((o) =>
           o
-            .setName("role_id")
-            .setDescription("Discord role ID")
+            .setName("role")
+            .setDescription("Mention a role or enter its Discord Role ID")
             .setRequired(true)
-            .setMaxLength(25),
+            .setMaxLength(100),
         )
         .addStringOption((o) =>
           o
@@ -876,12 +876,15 @@ function createTaskRoleSystem(client, options = {}) {
 
       const name = interaction.options.getString("name", true).trim();
       const points = interaction.options.getInteger("points", true);
-      const roleId = interaction.options.getString("role_id", true).trim();
+      const roleInput = interaction.options.getString("role", true).trim();
       const mode = interaction.options.getString("mode", true);
+
+      // Accept either <@&ROLE_ID> or a raw Role ID.
+      const roleId = roleInput.match(/^<@&(\d{17,20})>$/)?.[1] || roleInput;
 
       if (!/^\d{17,20}$/.test(roleId)) {
         return interaction.reply({
-          content: "That doesn't look like a valid Discord role ID.",
+          content: "Please mention a valid Discord role or enter its Role ID.",
           flags: MessageFlags.Ephemeral,
         });
       }
@@ -892,7 +895,7 @@ function createTaskRoleSystem(client, options = {}) {
 
       if (!role) {
         return interaction.reply({
-          content: "I couldn't find that role in this server. Check its ID.",
+          content: "I couldn't find that role in this server.",
           flags: MessageFlags.Ephemeral,
         });
       }
@@ -930,7 +933,6 @@ function createTaskRoleSystem(client, options = {}) {
         flags: MessageFlags.Ephemeral,
       });
     }
-
     // Edit an existing role tier.
     if (sub === "role-edit") {
       const tiers = getRoleTiers(guildId);

@@ -1,66 +1,91 @@
-// Replace roleId values with actual Discord role IDs. Keep staff roles on mode: 'approval'.
+// Replace roleId values with actual Discord role IDs.
+// Keep staff-related roles on mode: "approval".
+
 const DEFAULT_TASKS = [
   {
     id: "daily_chat",
     name: "Daily Community Chat",
-    description: "Participate in normal conversation without spamming.",
+    description:
+      "Send 20 meaningful messages in the community throughout the day. Avoid spam and repetitive messages.",
     type: "message_count",
     period: "daily",
-    target: 5,
-    points: 5,
+    target: 20,
+    points: 10,
     verification: "auto",
     enabled: true,
   },
   {
     id: "weekly_chat",
     name: "Weekly Community Participation",
-    description: "Reach the weekly message activity target.",
+    description:
+      "Reach 100 meaningful messages across the community within the week.",
     type: "message_count",
     period: "weekly",
-    target: 25,
-    points: 20,
+    target: 100,
+    points: 40,
     verification: "auto",
     enabled: true,
   },
   {
     id: "event_helper",
-    name: "Help With a Community Event",
+    name: "Community Event Helper",
     description:
-      "Help staff run an event and submit a short description or proof link.",
+      "Help organize or run a community event. Submit a short description or proof link for staff review.",
     type: "contribution",
     period: "weekly",
-    points: 30,
+    points: 50,
     verification: "staff",
     enabled: true,
   },
   {
     id: "community_helper",
-    name: "Help a Community Member",
+    name: "Helpful Community Member",
     description:
-      "Provide useful help to another member; staff confirms the contribution.",
+      "Help another member with a question, problem, or community activity. Staff must verify your contribution.",
     type: "contribution",
     period: "weekly",
-    points: 15,
+    points: 25,
     verification: "staff",
     enabled: true,
   },
   {
     id: "special_challenge",
     name: "Special Community Challenge",
-    description: "Complete the currently announced special challenge.",
+    description:
+      "Complete a special challenge announced by the staff team. Submit proof for verification.",
     type: "challenge",
     period: "lifetime",
-    points: 50,
+    points: 75,
     verification: "staff",
     enabled: true,
   },
 ];
 
 const DEFAULT_ROLE_TIERS = [
-  { name: "Verified Member", points: 10, roleId: "", mode: "auto" },
-  { name: "Trusted Member", points: 75, roleId: "", mode: "auto" },
-  { name: "Event Helper", points: 150, roleId: "", mode: "auto" },
-  { name: "Staff Candidate", points: 250, roleId: "", mode: "approval" },
+  {
+    name: "Community Member",
+    points: 50,
+    roleId: "1557984852563988514",
+    mode: "auto",
+  },
+  {
+    name: "Core Member",
+    points: 200,
+    roleId: "1561341954309095545",
+    mode: "auto",
+  },
+  {
+    name: "Event Helper",
+    points: 400,
+    roleId: "1561297404266020867",
+    mode: "auto",
+  },
+  {
+    name: "Staff Candidate",
+    points: 700,
+    roleId: "1565196993125687406",
+    mode: "approval",
+  },
 ];
 
 module.exports = { DEFAULT_TASKS, DEFAULT_ROLE_TIERS };

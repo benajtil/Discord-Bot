@@ -2,7 +2,10 @@ const fs = require("node:fs");
 const path = require("node:path");
 const Database = require("better-sqlite3");
 
-function createXpStaffDatabase(filePath = "./data/xp-level-staff.sqlite") {
+function createXpStaffDatabase(
+  filePath = process.env.XP_DATABASE_PATH ||
+    path.join(process.cwd(), "data", "xp-level-staff.sqlite"),
+) {
   const absolutePath = path.resolve(filePath);
   fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
   const db = new Database(absolutePath);

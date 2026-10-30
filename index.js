@@ -54,6 +54,7 @@ const {
 } = require("./handlers/entertainment/meme-reactions");
 
 const registerMemory = require("./memory");
+const createOwnerOnly = require("./handlers/owner-only");
 const { registerAutoDelete } = require("./handlers/autodelete/autodelete");
 const { registerAutoShip } = require("./handlers/entertainment/autoship");
 const { registerAutoReply } = require("./handlers/autoreply/autoreply");
@@ -69,7 +70,13 @@ require("./farewell")(client, db, PREFIX, DEVELOPER_ID);
 registerAutoReply(client);
 registerConfessions(client);
 registerEntertainment(client);
-const xpLevelStaff = createXpLevelStaff(client);
+const xpLevelStaff = createXpLevelStaff(client, {
+  welcomeDb: db,
+});
+
+const ownerOnly = createOwnerOnly(client, {
+  xpDb: xpLevelStaff.db,
+});
 client.commands = new Collection();
 client.aliases = new Collection();
 
@@ -1214,7 +1221,7 @@ client.on(Events.GuildMemberAdd, async (member) => {
 client.on(Events.MessageCreate, async (message) => {
   if (message.author.bot || !message.guild) return;
   await funGames.handleChallengeReply(message, db);
-
+  if (await ownerOnly.handleMessage(message)) return;
   // Track task activity.
   try {
     await taskRoleSystem.handleMessageCreate(message);

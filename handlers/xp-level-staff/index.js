@@ -4,11 +4,12 @@ const {
   PermissionFlagsBits,
   ChannelType,
   MessageFlags,
-  AttachmentBuilder,
 } = require("discord.js");
 
-const { QuickDB } = require("quick.db");
-const { createCanvas, loadImage } = require("@napi-rs/canvas");
+const path = require("path");
+const fs = require("fs");
+const { createCanvas, loadImage, GlobalFonts } = require("@napi-rs/canvas");
+
 const { createXpStaffDatabase } = require("./db");
 
 function createXpLevelStaff(client, options = {}) {
@@ -18,150 +19,6 @@ function createXpLevelStaff(client, options = {}) {
       "./data/xp-level-staff.sqlite",
   );
 
-  const welcomeDb = new QuickDB();
-
-  async function loadImageSource(source) {
-    if (/^https?:\/\//i.test(source)) {
-      const response = await fetch(source);
-
-      if (!response.ok) {
-        throw new Error(`Image request failed: ${response.status}`);
-      }
-
-      const buffer = Buffer.from(await response.arrayBuffer());
-      return loadImage(buffer);
-    }
-
-    return loadImage(source);
-  }
-
-  async function createLevelUpImage(member, level) {
-    const guildId = member.guild.id;
-
-    // Get the banner configured through !welcomebanner.
-    const bannerUrl = await welcomeDb.get(`image_${guildId}`);
-
-    if (!bannerUrl) return null;
-
-    // Replace supported dynamic variables.
-    const backgroundUrl = String(bannerUrl)
-      .replace(
-        /\?useravatar/gi,
-        member.user.displayAvatarURL({
-          extension: "png",
-          size: 512,
-        }),
-      )
-      .replace(
-        /\?serveravatar/gi,
-        member.guild.iconURL({
-          extension: "png",
-          size: 512,
-        }) ||
-          member.user.displayAvatarURL({
-            extension: "png",
-            size: 512,
-          }),
-      );
-
-    const canvas = createCanvas(900, 300);
-    const ctx = canvas.getContext("2d");
-
-    // Load the configured welcome banner.
-    const background = await loadImageSource(backgroundUrl);
-    // Draw background.
-    ctx.drawImage(background, 0, 0, canvas.width, canvas.height);
-
-    // Add a dark overlay for readable text.
-    ctx.fillStyle = "rgba(0, 0, 0, 0.45)";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // Load member avatar.
-    const avatarUrl = member.user.displayAvatarURL({
-      extension: "png",
-      size: 256,
-    });
-
-    const avatar = await loadImageSource(avatarUrl);
-    // Draw circular avatar.
-    const avatarX = 150;
-    const avatarY = 150;
-    const avatarRadius = 85;
-
-    ctx.save();
-    ctx.beginPath();
-    ctx.arc(avatarX, avatarY, avatarRadius, 0, Math.PI * 2);
-    ctx.closePath();
-    ctx.clip();
-
-    ctx.drawImage(
-      avatar,
-      avatarX - avatarRadius,
-      avatarY - avatarRadius,
-      avatarRadius * 2,
-      avatarRadius * 2,
-    );
-
-    ctx.restore();
-
-    // Avatar border.
-    ctx.beginPath();
-    ctx.arc(avatarX, avatarY, avatarRadius, 0, Math.PI * 2);
-    ctx.strokeStyle = "#ffffff";
-    ctx.lineWidth = 6;
-    ctx.stroke();
-
-    // Level-up text.
-    ctx.textAlign = "left";
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "bold 48px Arial";
-    ctx.fillText("LEVEL UP!", 280, 120);
-
-    ctx.font = "bold 34px Arial";
-    ctx.fillText(member.displayName.slice(0, 24), 280, 175);
-
-    ctx.font = "28px Arial";
-    ctx.fillStyle = "#ffd700";
-    ctx.fillText(`LEVEL ${level}`, 280, 225);
-
-    return canvas.toBuffer("image/png");
-  }
-
-  // Send the level-up banner.
-  async function sendLevelUpAnnouncement(channel, member, level) {
-    try {
-      const image = await createLevelUpImage(member, level);
-
-      if (image) {
-        const attachment = new AttachmentBuilder(image, {
-          name: "level-up.png",
-        });
-
-        await channel.send({
-          files: [attachment],
-          allowedMentions: { users: [member.id] },
-        });
-
-        return;
-      }
-
-      // Fallback when no welcome banner is configured.
-      await channel.send({
-        content: `🎉 Congratulations <@${member.id}>! **${member.displayName}** reached **Level ${level}**!`,
-        allowedMentions: { users: [member.id] },
-      });
-    } catch (error) {
-      console.error("[XP Level-Up Banner]", error);
-
-      // Keep level-up notifications working if image generation fails.
-      await channel
-        .send({
-          content: `🎉 Congratulations <@${member.id}>! **${member.displayName}** reached **Level ${level}**!`,
-          allowedMentions: { users: [member.id] },
-        })
-        .catch(() => {});
-    }
-  }
   const minMessageLength = Number(
     options.minMessageLength || process.env.XP_MIN_MESSAGE_LENGTH || 8,
   );
@@ -371,8 +228,166 @@ function createXpLevelStaff(client, options = {}) {
       member?.permissions?.has(PermissionFlagsBits.ManageGuild)
     );
   }
+  // Register custom fonts used by the Kator6 cards.
+  const vampireFont = path.join(__dirname, "fonts", "Vampire Wars.ttf");
+  const quicksandFont = path.join(__dirname, "fonts", "Quicksand-SemiBold.ttf");
 
-  // Award XP and announce when a member reaches a new level.
+  if (fs.existsSync(vampireFont)) {
+    GlobalFonts.registerFromPath(vampireFont, "Vampire Wars");
+  }
+
+  if (fs.existsSync(quicksandFont)) {
+    GlobalFonts.registerFromPath(quicksandFont, "Quicksand");
+  }
+
+  // Generate a custom Kator6 level-up announcement.
+  async function createLevelUpCard(member, level, xp) {
+    const width = 900;
+    const height = 300;
+
+    const canvas = createCanvas(width, height);
+    const ctx = canvas.getContext("2d");
+
+    // Background
+    const bannerPath = path.join(__dirname, "images", "kator6-banner.png");
+
+    if (fs.existsSync(bannerPath)) {
+      const background = await loadImage(bannerPath);
+      ctx.drawImage(background, 0, 0, width, height);
+    } else {
+      const gradient = ctx.createLinearGradient(0, 0, width, height);
+      gradient.addColorStop(0, "#151525");
+      gradient.addColorStop(1, "#292044");
+
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, width, height);
+    }
+
+    // Dark overlay for readability
+    const overlay = ctx.createLinearGradient(0, 0, width, 0);
+    overlay.addColorStop(0, "rgba(8, 8, 20, 0.35)");
+    overlay.addColorStop(0.45, "rgba(8, 8, 20, 0.82)");
+    overlay.addColorStop(1, "rgba(8, 8, 20, 0.68)");
+
+    ctx.fillStyle = overlay;
+    ctx.fillRect(0, 0, width, height);
+
+    // Decorative accent
+    ctx.fillStyle = "rgba(255, 255, 255, 0.05)";
+    ctx.beginPath();
+    ctx.arc(830, 30, 180, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = "#f7c75e";
+    ctx.fillRect(285, 45, 5, 210);
+
+    // Load member avatar
+    const avatarUrl = member.user.displayAvatarURL({
+      extension: "png",
+      size: 256,
+    });
+
+    const avatar = await loadImage(avatarUrl);
+
+    // Avatar shadow
+    ctx.save();
+    ctx.shadowColor = "rgba(0, 0, 0, 0.7)";
+    ctx.shadowBlur = 25;
+    ctx.shadowOffsetY = 5;
+
+    // Circular avatar
+    ctx.beginPath();
+    ctx.arc(150, 150, 105, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.clip();
+
+    ctx.drawImage(avatar, 45, 45, 210, 210);
+    ctx.restore();
+
+    // Avatar border
+    ctx.beginPath();
+    ctx.arc(150, 150, 108, 0, Math.PI * 2);
+    ctx.strokeStyle = "#f7c75e";
+    ctx.lineWidth = 5;
+    ctx.stroke();
+
+    // Text settings
+    ctx.textBaseline = "middle";
+
+    // LEVEL UP label
+    ctx.fillStyle = "#f7c75e";
+    ctx.font = 'bold 21px "Quicksand"';
+    ctx.fillText("✦  LEVEL UP!", 320, 72);
+
+    // Member name
+    const displayName = member.displayName || member.user.username;
+
+    ctx.fillStyle = "#ffffff";
+    ctx.font = 'bold 34px "Quicksand"';
+
+    let name = displayName;
+    while (ctx.measureText(name).width > 530 && name.length > 3) {
+      name = name.slice(0, -1);
+    }
+
+    if (name !== displayName) name += "...";
+
+    ctx.fillText(name, 320, 119);
+
+    // Level number
+    ctx.fillStyle = "#f7c75e";
+    ctx.font = 'bold 64px "Vampire Wars"';
+    ctx.fillText(`LEVEL ${level}`, 315, 183);
+
+    // XP information
+    ctx.fillStyle = "rgba(255, 255, 255, 0.85)";
+    ctx.font = '20px "Quicksand"';
+    ctx.fillText(`${xp.toLocaleString()} TOTAL XP`, 320, 235);
+
+    // Bottom decorative line
+    // XP progress toward the next level
+    const currentLevel = Math.min(
+      100,
+      Math.floor(Math.sqrt(Math.max(0, xp) / 100)),
+    );
+
+    const currentFloor = currentLevel * currentLevel * 100;
+    const nextThreshold = 100 * (currentLevel + 1) ** 2;
+
+    const progress =
+      currentLevel >= 100
+        ? 1
+        : Math.max(
+            0,
+            Math.min(1, (xp - currentFloor) / (nextThreshold - currentFloor)),
+          );
+
+    // Progress background
+    ctx.fillStyle = "rgba(255, 255, 255, 0.2)";
+    ctx.beginPath();
+    ctx.roundRect(320, 255, 480, 9, 5);
+    ctx.fill();
+
+    // Progress fill
+    ctx.fillStyle = "#f7c75e";
+    ctx.beginPath();
+    ctx.roundRect(320, 255, 480 * progress, 9, 5);
+    ctx.fill();
+
+    // Footer
+    ctx.fillStyle = "rgba(255, 255, 255, 0.65)";
+    ctx.font = '14px "Quicksand"';
+    ctx.fillText("KATOR6 COMMUNITY  •  KEEP GRINDING", 320, 283);
+
+    const imageBuffer = canvas.toBuffer("image/png");
+
+    if (!Buffer.isBuffer(imageBuffer)) {
+      throw new Error("Level-up card did not generate a valid image buffer.");
+    }
+
+    return imageBuffer;
+  }
+
   async function awardXp(guild, userId, amount, source = "activity") {
     if (!guild || !userId || amount <= 0) return;
 
@@ -384,23 +399,53 @@ function createXpLevelStaff(client, options = {}) {
     const afterXp = db.getXp(guild.id, userId);
     const afterLevel = levelFromXp(afterXp);
 
-    if (afterLevel > beforeLevel) {
-      const channelId = db.getSetting(guild.id, "levelup_channel_id");
+    if (afterLevel <= beforeLevel) return;
 
-      if (!channelId) return;
+    const channelId = db.getSetting(guild.id, "levelup_channel_id");
+    if (!channelId) return;
 
-      const channel = await guild.channels.fetch(channelId).catch(() => null);
+    const channel = await guild.channels.fetch(channelId).catch(() => null);
 
-      if (!channel?.isTextBased() || !channel.send) return;
+    if (!channel?.isTextBased() || !channel.send) return;
 
-      const member = await guild.members.fetch(userId).catch(() => null);
+    const member = await guild.members.fetch(userId).catch(() => null);
+    if (!member) return;
 
-      if (!member) return;
+    try {
+      const imageBuffer = await createLevelUpCard(member, afterLevel, afterXp);
 
-      await sendLevelUpAnnouncement(channel, member, afterLevel);
+      // Validate generated image
+      if (!Buffer.isBuffer(imageBuffer) || imageBuffer.length === 0) {
+        throw new Error("Generated level-up image is empty or invalid.");
+      }
+
+      console.log(`[XP Level-Up] Generated card: ${imageBuffer.length} bytes`);
+
+      await channel.send({
+        content: `🎉 Congratulations <@${userId}>! **${member.displayName}** reached **Level ${afterLevel}**!`,
+        files: [
+          {
+            attachment: imageBuffer,
+            name: "kator6-level-up.png",
+          },
+        ],
+        allowedMentions: {
+          users: [userId],
+        },
+      });
+    } catch (error) {
+      console.error("[XP Level-Up Card]", error);
+
+      await channel
+        .send({
+          content: `🎉 Congratulations <@${userId}>! You've reached **Level ${afterLevel}**!`,
+          allowedMentions: {
+            users: [userId],
+          },
+        })
+        .catch(console.error);
     }
   }
-
   // Award voice XP once per minute to eligible members.
   async function awardVoiceXp() {
     for (const guild of client.guilds.cache.values()) {
@@ -801,13 +846,10 @@ function createXpLevelStaff(client, options = {}) {
         });
       }
 
-      const currentLevel = levelFromXp(
-        db.getXp(interaction.guildId, interaction.user.id),
-      );
-
-      const testLevel = Math.min(100, currentLevel + 1);
-
-      await sendLevelUpAnnouncement(channel, interaction.member, testLevel);
+      await channel.send({
+        content: `🧪 Level-up notification test from ${interaction.user}.`,
+        allowedMentions: { users: [interaction.user.id] },
+      });
 
       return interaction.reply({
         content: `Test notification sent to ${channel}.`,

@@ -1211,6 +1211,7 @@ client.on(Events.GuildMemberAdd, async (member) => {
 
 client.on(Events.MessageCreate, async (message) => {
   if (message.author.bot || !message.guild) return;
+  await funGames.handleChallengeReply(message, db);
 
   // Track task activity.
   try {
@@ -1221,7 +1222,6 @@ client.on(Events.MessageCreate, async (message) => {
 
   const content = message.content.trim();
 
-  // Parse prefix commands.
   const hasPrefix = content.startsWith(PREFIX);
   const input = hasPrefix ? content.slice(PREFIX.length).trim() : "";
 

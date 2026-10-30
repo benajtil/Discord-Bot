@@ -1,4 +1,8 @@
-const { SlashCommandBuilder, EmbedBuilder } = require("discord.js");
+const {
+  SlashCommandBuilder,
+  EmbedBuilder,
+  PermissionFlagsBits,
+} = require("discord.js");
 
 // Ysabelle API Entertainment System
 // Requires Node.js 18+ and a QuickDB instance.
@@ -61,6 +65,12 @@ const command = new SlashCommandBuilder()
   )
 
   .addSubcommand((sub) =>
+    sub
+      .setName("reveal")
+      .setDescription("Privately reveal the active answer (Admin only)."),
+  )
+
+  .addSubcommand((sub) =>
     sub.setName("points").setDescription("Check your entertainment points."),
   )
 
@@ -82,13 +92,30 @@ function normalize(value) {
     .replace(/\s+/g, " ")
     .trim();
 }
+function isAnswerCorrect(submitted, acceptedAnswers) {
+  const clean = (value) =>
+    normalize(value)
+      .replace(/\b(the|a|an|my|your|our|their|his|her)\b/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
 
+  const userAnswer = clean(submitted);
+
+  return acceptedAnswers.some((answer) => {
+    const correctAnswer = clean(answer);
+
+    return (
+      userAnswer === correctAnswer ||
+      userAnswer.includes(correctAnswer) ||
+      correctAnswer.includes(userAnswer)
+    );
+  });
+}
 function remember(type, key) {
   const list = recent[type];
   const normalizedKey = normalize(key);
 
-  if (!normalizedKey) return false;
-  if (list.includes(normalizedKey)) return false;
+  if (!normalizedKey || list.includes(normalizedKey)) return false;
 
   list.push(normalizedKey);
 
@@ -136,9 +163,7 @@ function checkCooldown(interaction) {
   const lastUsed = cooldowns.get(key) || 0;
   const remaining = COOLDOWN_MS - (now - lastUsed);
 
-  if (remaining > 0) {
-    return Math.ceil(remaining / 1000);
-  }
+  if (remaining > 0) return Math.ceil(remaining / 1000);
 
   cooldowns.set(key, now);
   return 0;
@@ -185,7 +210,6 @@ async function rewardDailyOnce(db, guildId, userId, game, amount) {
     };
   }
 
-  // Mark the daily claim, then award points.
   await db.set(claimKey, true);
   const total = await addPoints(db, guildId, userId, amount);
 
@@ -196,17 +220,17 @@ async function rewardDailyOnce(db, guildId, userId, game, amount) {
 }
 
 async function getTriviaQuestion() {
-  // Use already-fetched questions first to reduce API requests.
   for (let i = 0; i < triviaPool.length; i++) {
     const question = triviaPool.shift();
-    const key = question.question?.text;
 
-    if (key && remember("trivia", key)) {
+    if (
+      question?.question?.text &&
+      remember("trivia", question.question.text)
+    ) {
       return question;
     }
   }
 
-  // Fetch a batch if our pool is empty or its questions are stale.
   const questions = await fetchJSON(API.trivia);
 
   if (!Array.isArray(questions) || questions.length === 0) {
@@ -227,8 +251,6 @@ async function getTriviaQuestion() {
     }
   }
 
-  // If everything was recently used, accept a new API result
-  // rather than leaving the user without a game.
   const fallback = await fetchJSON(API.trivia);
 
   if (!Array.isArray(fallback) || !fallback[0]) {
@@ -246,13 +268,9 @@ async function getRiddle() {
       throw new Error("The riddle API returned invalid data.");
     }
 
-    if (remember("riddle", data.riddle)) {
-      return data;
-    }
+    if (remember("riddle", data.riddle)) return data;
   }
 
-  // A repeated item is preferable to a broken command if the API
-  // has a small selection or keeps returning the same item.
   return fetchJSON(API.riddle);
 }
 
@@ -264,9 +282,7 @@ async function getJoke() {
       throw new Error("The joke API returned invalid data.");
     }
 
-    const key = `${data.setup} ${data.punchline}`;
-
-    if (remember("chaos", key)) {
+    if (remember("chaos", `${data.setup} ${data.punchline}`)) {
       return data;
     }
   }
@@ -296,7 +312,18 @@ function makeEmbed(title, description, color) {
     .setTimestamp();
 }
 
-async function startTrivia(interaction, db) {
+async function saveChallengeMessage(interaction) {
+  const challengeMessage = await interaction.fetchReply();
+  const challenge = activeChallenges.get(getChallengeKey(interaction));
+
+  if (challenge) {
+    challenge.messageId = challengeMessage.id;
+  }
+
+  return challengeMessage;
+}
+
+async function startTrivia(interaction) {
   const question = await getTriviaQuestion();
   const questionText = question.question.text;
   const correctAnswer = question.correctAnswer;
@@ -307,6 +334,7 @@ async function startTrivia(interaction, db) {
   ]).slice(0, 4);
 
   const letters = ["A", "B", "C", "D"];
+
   const choices = options
     .map((option, index) => `**${letters[index]}.** ${option}`)
     .join("\n");
@@ -319,12 +347,14 @@ async function startTrivia(interaction, db) {
     createdBy: interaction.user.id,
     solved: false,
     reward: 5,
+    messageId: null,
   });
 
   const embed = makeEmbed(
     "🧠 Trivia Challenge",
     `**${questionText}**\n\n${choices}\n\n` +
-      "Use `/fun answer` to submit your answer.",
+      "**Reply directly to this message with your answer.**\n" +
+      "You can also use `/fun answer`.",
     COLORS.trivia,
   );
 
@@ -337,6 +367,7 @@ async function startTrivia(interaction, db) {
   }
 
   await interaction.reply({ embeds: [embed] });
+  await saveChallengeMessage(interaction);
 }
 
 async function startRiddle(interaction) {
@@ -350,15 +381,19 @@ async function startRiddle(interaction) {
     createdBy: interaction.user.id,
     solved: false,
     reward: 8,
+    messageId: null,
   });
 
   const embed = makeEmbed(
     "🕵️ Riddle Challenge",
-    `${data.riddle}\n\n` + "Think carefully and use `/fun answer` to answer.",
+    `${data.riddle}\n\n` +
+      "**Reply directly to this message with your answer.**\n" +
+      "You can also use `/fun answer`.",
     COLORS.riddle,
   );
 
   await interaction.reply({ embeds: [embed] });
+  await saveChallengeMessage(interaction);
 }
 
 async function showChaos(interaction, db) {
@@ -397,23 +432,36 @@ async function showChaos(interaction, db) {
   await interaction.reply({ embeds: [embed] });
 }
 
+async function awardCorrectAnswer({ guildId, channelId, userId, reply, db }) {
+  const key = `${guildId}:${channelId}`;
+  const challenge = activeChallenges.get(key);
+
+  if (!challenge || challenge.solved) return;
+
+  challenge.solved = true;
+  activeChallenges.delete(key);
+
+  const total = await addPoints(db, guildId, userId, challenge.reward);
+
+  const embed = makeEmbed(
+    "✅ Correct Answer!",
+    `<@${userId}> solved the ${challenge.type}!\n\n` +
+      `**Answer:** ${challenge.answer}\n` +
+      `**Points earned:** +${challenge.reward}\n` +
+      `**Your total:** ${total} fun points`,
+    COLORS.points,
+  );
+
+  await reply({ embeds: [embed] });
+}
+
 async function submitAnswer(interaction, db) {
   const key = getChallengeKey(interaction);
   const challenge = activeChallenges.get(key);
 
   if (!challenge) {
     await interaction.reply({
-      content:
-        "There is no active trivia or riddle in this channel. " +
-        "Start one with `/fun trivia` or `/fun riddle`.",
-      ephemeral: true,
-    });
-    return;
-  }
-
-  if (challenge.solved) {
-    await interaction.reply({
-      content: "This challenge has already been solved.",
+      content: "There is no active trivia or riddle in this channel.",
       ephemeral: true,
     });
     return;
@@ -421,19 +469,9 @@ async function submitAnswer(interaction, db) {
 
   const submitted = normalize(interaction.options.getString("answer", true));
 
-  if (!submitted) {
-    await interaction.reply({
-      content: "Please enter a valid answer.",
-      ephemeral: true,
-    });
-    return;
-  }
-
   const accepted = challenge.acceptedAnswers || [normalize(challenge.answer)];
 
-  const correct = accepted.some((answer) => answer && answer === submitted);
-
-  if (!correct) {
+  if (!isAnswerCorrect(submitted, accepted)) {
     await interaction.reply({
       content: "❌ Not quite! Try again.",
       ephemeral: true,
@@ -441,26 +479,78 @@ async function submitAnswer(interaction, db) {
     return;
   }
 
-  challenge.solved = true;
-  activeChallenges.delete(key);
-
-  const total = await addPoints(
+  await awardCorrectAnswer({
+    guildId: interaction.guildId,
+    channelId: interaction.channelId,
+    userId: interaction.user.id,
+    reply: (payload) => interaction.reply(payload),
     db,
-    interaction.guildId,
-    interaction.user.id,
-    challenge.reward,
+  });
+}
+
+async function handleChallengeReply(message, db) {
+  if (message.author.bot || !message.guild) return;
+  if (!message.reference?.messageId) return;
+
+  const key = `${message.guild.id}:${message.channel.id}`;
+  const challenge = activeChallenges.get(key);
+
+  if (!challenge || challenge.solved || !challenge.messageId) return;
+
+  // Verify the exact challenge message, not the slash command invocation.
+  if (message.reference.messageId !== challenge.messageId) return;
+
+  const submitted = normalize(message.content);
+
+  if (!submitted) return;
+
+  const accepted = challenge.acceptedAnswers || [normalize(challenge.answer)];
+
+  if (!isAnswerCorrect(submitted, accepted)) {
+    await message.reply("❌ Not quite! Try again.");
+    return;
+  }
+
+  await awardCorrectAnswer({
+    guildId: message.guild.id,
+    channelId: message.channel.id,
+    userId: message.author.id,
+    reply: (payload) => message.reply(payload),
+    db,
+  });
+}
+
+async function revealAnswer(interaction) {
+  const isAdmin = interaction.memberPermissions?.has(
+    PermissionFlagsBits.Administrator,
   );
 
-  const embed = makeEmbed(
-    "✅ Correct Answer!",
-    `<@${interaction.user.id}> solved the ${challenge.type}!\n\n` +
-      `**Answer:** ${challenge.answer}\n` +
-      `**Points earned:** +${challenge.reward}\n` +
-      `**Your total:** ${total} fun points`,
-    COLORS.points,
-  );
+  if (!isAdmin) {
+    await interaction.reply({
+      content: "You need Administrator permission to reveal answers.",
+      ephemeral: true,
+    });
+    return;
+  }
 
-  await interaction.reply({ embeds: [embed] });
+  const challenge = activeChallenges.get(getChallengeKey(interaction));
+
+  if (!challenge) {
+    await interaction.reply({
+      content: "There is no active challenge in this channel.",
+      ephemeral: true,
+    });
+    return;
+  }
+
+  await interaction.reply({
+    content:
+      `🔐 **Admin Answer Reveal**\n\n` +
+      `**Challenge:** ${challenge.type}\n` +
+      `**Correct answer:** ${challenge.answer}\n` +
+      `**Reward:** ${challenge.reward} points`,
+    ephemeral: true,
+  });
 }
 
 async function showPoints(interaction, db) {
@@ -523,26 +613,32 @@ async function handleSlashCommand(interaction, db) {
     return;
   }
 
-  const cooldown = checkCooldown(interaction);
-
-  if (cooldown > 0) {
-    await interaction.reply({
-      content: `Slow down! Try again in ${cooldown} second(s).`,
-      ephemeral: true,
-    });
-    return;
-  }
-
   const subcommand = interaction.options.getSubcommand();
 
   try {
+    // Admin reveal is checked separately.
+    if (subcommand === "reveal") {
+      await revealAnswer(interaction);
+      return;
+    }
+
+    const cooldown = checkCooldown(interaction);
+
+    if (cooldown > 0) {
+      await interaction.reply({
+        content: `Slow down! Try again in ${cooldown} second(s).`,
+        ephemeral: true,
+      });
+      return;
+    }
+
     switch (subcommand) {
       case "chaos":
         await showChaos(interaction, db);
         break;
 
       case "trivia":
-        await startTrivia(interaction, db);
+        await startTrivia(interaction);
         break;
 
       case "riddle":
@@ -571,7 +667,7 @@ async function handleSlashCommand(interaction, db) {
     console.error("[Ysabelle Entertainment]", error);
 
     const message =
-      "I couldn't reach an entertainment API right now. " +
+      "I couldn't complete that entertainment command. " +
       "Please try again in a little while.";
 
     if (interaction.replied || interaction.deferred) {
@@ -595,4 +691,5 @@ async function handleSlashCommand(interaction, db) {
 module.exports = {
   command,
   handleSlashCommand,
+  handleChallengeReply,
 };

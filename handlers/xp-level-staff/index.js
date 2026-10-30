@@ -4,7 +4,11 @@ const {
   PermissionFlagsBits,
   ChannelType,
   MessageFlags,
+  AttachmentBuilder,
 } = require("discord.js");
+
+const { QuickDB } = require("quick.db");
+const { createCanvas, loadImage } = require("@napi-rs/canvas");
 const { createXpStaffDatabase } = require("./db");
 
 function createXpLevelStaff(client, options = {}) {
@@ -14,6 +18,150 @@ function createXpLevelStaff(client, options = {}) {
       "./data/xp-level-staff.sqlite",
   );
 
+  const welcomeDb = new QuickDB();
+
+  async function loadImageSource(source) {
+    if (/^https?:\/\//i.test(source)) {
+      const response = await fetch(source);
+
+      if (!response.ok) {
+        throw new Error(`Image request failed: ${response.status}`);
+      }
+
+      const buffer = Buffer.from(await response.arrayBuffer());
+      return loadImage(buffer);
+    }
+
+    return loadImage(source);
+  }
+
+  async function createLevelUpImage(member, level) {
+    const guildId = member.guild.id;
+
+    // Get the banner configured through !welcomebanner.
+    const bannerUrl = await welcomeDb.get(`image_${guildId}`);
+
+    if (!bannerUrl) return null;
+
+    // Replace supported dynamic variables.
+    const backgroundUrl = String(bannerUrl)
+      .replace(
+        /\?useravatar/gi,
+        member.user.displayAvatarURL({
+          extension: "png",
+          size: 512,
+        }),
+      )
+      .replace(
+        /\?serveravatar/gi,
+        member.guild.iconURL({
+          extension: "png",
+          size: 512,
+        }) ||
+          member.user.displayAvatarURL({
+            extension: "png",
+            size: 512,
+          }),
+      );
+
+    const canvas = createCanvas(900, 300);
+    const ctx = canvas.getContext("2d");
+
+    // Load the configured welcome banner.
+    const background = await loadImageSource(backgroundUrl);
+    // Draw background.
+    ctx.drawImage(background, 0, 0, canvas.width, canvas.height);
+
+    // Add a dark overlay for readable text.
+    ctx.fillStyle = "rgba(0, 0, 0, 0.45)";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Load member avatar.
+    const avatarUrl = member.user.displayAvatarURL({
+      extension: "png",
+      size: 256,
+    });
+
+    const avatar = await loadImageSource(avatarUrl);
+    // Draw circular avatar.
+    const avatarX = 150;
+    const avatarY = 150;
+    const avatarRadius = 85;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(avatarX, avatarY, avatarRadius, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.clip();
+
+    ctx.drawImage(
+      avatar,
+      avatarX - avatarRadius,
+      avatarY - avatarRadius,
+      avatarRadius * 2,
+      avatarRadius * 2,
+    );
+
+    ctx.restore();
+
+    // Avatar border.
+    ctx.beginPath();
+    ctx.arc(avatarX, avatarY, avatarRadius, 0, Math.PI * 2);
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 6;
+    ctx.stroke();
+
+    // Level-up text.
+    ctx.textAlign = "left";
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 48px Arial";
+    ctx.fillText("LEVEL UP!", 280, 120);
+
+    ctx.font = "bold 34px Arial";
+    ctx.fillText(member.displayName.slice(0, 24), 280, 175);
+
+    ctx.font = "28px Arial";
+    ctx.fillStyle = "#ffd700";
+    ctx.fillText(`LEVEL ${level}`, 280, 225);
+
+    return canvas.toBuffer("image/png");
+  }
+
+  // Send the level-up banner.
+  async function sendLevelUpAnnouncement(channel, member, level) {
+    try {
+      const image = await createLevelUpImage(member, level);
+
+      if (image) {
+        const attachment = new AttachmentBuilder(image, {
+          name: "level-up.png",
+        });
+
+        await channel.send({
+          files: [attachment],
+          allowedMentions: { users: [member.id] },
+        });
+
+        return;
+      }
+
+      // Fallback when no welcome banner is configured.
+      await channel.send({
+        content: `🎉 Congratulations <@${member.id}>! **${member.displayName}** reached **Level ${level}**!`,
+        allowedMentions: { users: [member.id] },
+      });
+    } catch (error) {
+      console.error("[XP Level-Up Banner]", error);
+
+      // Keep level-up notifications working if image generation fails.
+      await channel
+        .send({
+          content: `🎉 Congratulations <@${member.id}>! **${member.displayName}** reached **Level ${level}**!`,
+          allowedMentions: { users: [member.id] },
+        })
+        .catch(() => {});
+    }
+  }
   const minMessageLength = Number(
     options.minMessageLength || process.env.XP_MIN_MESSAGE_LENGTH || 8,
   );
@@ -246,14 +394,10 @@ function createXpLevelStaff(client, options = {}) {
       if (!channel?.isTextBased() || !channel.send) return;
 
       const member = await guild.members.fetch(userId).catch(() => null);
-      const displayName = member?.displayName || "A member";
 
-      await channel
-        .send({
-          content: `🎉 Congratulations <@${userId}>! **${displayName}** reached **Level ${afterLevel}**! Keep being active in the community.`,
-          allowedMentions: { users: [userId] },
-        })
-        .catch(() => {});
+      if (!member) return;
+
+      await sendLevelUpAnnouncement(channel, member, afterLevel);
     }
   }
 
@@ -657,10 +801,13 @@ function createXpLevelStaff(client, options = {}) {
         });
       }
 
-      await channel.send({
-        content: `🧪 Level-up notification test from ${interaction.user}.`,
-        allowedMentions: { users: [interaction.user.id] },
-      });
+      const currentLevel = levelFromXp(
+        db.getXp(interaction.guildId, interaction.user.id),
+      );
+
+      const testLevel = Math.min(100, currentLevel + 1);
+
+      await sendLevelUpAnnouncement(channel, interaction.member, testLevel);
 
       return interaction.reply({
         content: `Test notification sent to ${channel}.`,
